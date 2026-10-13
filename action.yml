@@ -176,13 +176,19 @@ runs:
           const end = log.endsWith("\n") || !log ? "" : "\n";
           process.stdout.write("Scheduled re-review of files that were stale or past their shelf life.\n\n" + fence + "\n" + log + end + fence + "\n" + (cut ? "\nlog truncated; see the workflow run\n" : ""));
         ' "$RUNNER_TEMP/review-seal-due.log" > "$BODY"
+        # A pull request someone closed without merging means "stop": nothing is committed or pushed until the branch is
+        # deleted. A merged one is done with, so a new pull request starts.
+        STATE=""
+        if [ -n "$(git status --porcelain -- "$LEDGER")" ]; then STATE="$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)"; fi
+        if [ "$STATE" = "CLOSED" ]; then
+          echo "::warning::review-seal: the scheduled pull request was closed; delete the review-seal/scheduled branch to resume"
+          if [ "$STATUS" != "0" ]; then echo "::error::review-seal: some reviews failed; see the log"; exit 1; fi
+          exit 0
+        fi
         # Makes sure review-seal/scheduled has an open pull request. "edit" also refreshes the body of an open one.
-        # A pull request someone closed (or merged, leaving the branch) is not reopened.
         ensure_pr() {
-          STATE="$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)"
           case "$STATE" in
             OPEN) if [ "$1" = "edit" ]; then gh pr edit review-seal/scheduled --body-file "$BODY"; fi ;;
-            CLOSED|MERGED) echo "::warning::review-seal: the scheduled pull request was closed; delete the review-seal/scheduled branch to resume" ;;
             *)
               if [ -n "$START" ]; then
                 gh pr create --head review-seal/scheduled --base "$START" --title "review-seal: scheduled re-review" --body-file "$BODY"
