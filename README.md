@@ -242,7 +242,7 @@ Commit the ledger. It is the review history of every covered file, kept next to 
 
 ## Limits
 
-- Covered paths that are symlinks are never reviewed, and the commit hook can't clear a staged one. Keep covered files as regular files, or narrow `files` so the globs miss the link.
+- Covered paths that are symlinks are skipped. They are never reviewed, and they never block a commit or a pull request check. `review-seal review <symlink>` exits 2 and says so.
 - The edit hook skips gitignored files, and `list` and `review --all` only see files git tracks or would track.
 - The plugin spots a Bash command that names a covered path, and when Claude finishes it also looks at what changed in the working tree. A command that never names a covered path (a formatter script, say) is caught only if the same session touched a covered file or ran a command mentioning part of a coverage glob.
 - Once a session edits anything covered, the end-of-turn review takes every stale covered file in the working tree, including ones changed before the session started, up to `maxFilesPerRun` files a run. Each version is reviewed once.
