@@ -289,6 +289,7 @@ test('action: checkout credentials are out of git config while the reviewer runs
   const calls = reviewerCalls(log);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].gitAuth, false);
+  assert.equal(calls[0].ghToken, null, 'the reviewer never sees the GitHub token');
   assert.equal(git('config', '--local', '--get-all', AUTH_KEY).trim(), AUTH);
 });
 
@@ -517,12 +518,14 @@ test('action, mode "due": a closed scheduled pull request stops the run without 
     writeFileSync(join(r.bin, 'state'), 'CLOSED\n');
     const tip = second ? remoteTip(r) : null;
     writeFileSync(r.calls, '');
-    assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
     const summary = join(mkdtempSync(join(tmpdir(), 'rs-summary-')), 'summary.md');
+    const d = step(r.root, 'Re-review what is due', { ...r.env, GITHUB_STEP_SUMMARY: summary });
+    assert.equal(d.code, 0, d.err);
     const o = step(r.root, 'Open or update the pull request', { ...r.env, GITHUB_STEP_SUMMARY: summary });
     assert.equal(o.code, 0, o.err);
-    assert.match(o.out, /^::warning::review-seal: the scheduled pull request was closed; delete the review-seal\/scheduled branch to resume/m);
-    assert.match(readFileSync(summary, 'utf8'), /review-seal: the scheduled pull request was closed, so these reviews were not kept/);
+    // With the branch still there, the review step stops before reviewing; without it, the pull request step does.
+    assert.match(second ? d.out : o.out, /^::warning::review-seal: the scheduled pull request was closed; delete the review-seal\/scheduled branch to resume/m);
+    assert.match(readFileSync(summary, 'utf8'), second ? /review-seal: nothing was reviewed\. The scheduled pull request was closed/ : /review-seal: the scheduled pull request was closed, so these reviews were not kept/);
     assert.equal(readFileSync(r.calls, 'utf8').trim(), 'pr view review-seal/scheduled --json state -q .state');
     if (second) assert.equal(remoteTip(r), tip);
     else assert.throws(() => remoteTip(r));
@@ -546,4 +549,28 @@ test('action, mode "due": a merged scheduled pull request starts a new one', () 
     assert.match(readFileSync(r.calls, 'utf8'), /^pr create --head review-seal\/scheduled --base main /m, String(second));
     assert.equal(remoteTip(r).length, 40);
   }
+});
+
+test('action, mode "due": a closed scheduled pull request means nothing is reviewed or paid for', () => {
+  const r = dueRepo({ prState: 'CLOSED' });
+  pushScheduled(r, BOT);
+  const before = remoteTip(r);
+  const summary = join(mkdtempSync(join(tmpdir(), 'rs-summary-')), 'summary.md');
+  const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
+  const d = step(r.root, 'Re-review what is due', { ...r.env, GITHUB_STEP_SUMMARY: summary, FAKE_CLAUDE_LOG: log });
+  assert.equal(d.code, 0, d.err);
+  assert.match(d.out, /^::warning::review-seal: the scheduled pull request was closed; delete the review-seal\/scheduled branch to resume/m);
+  assert.match(readFileSync(summary, 'utf8'), /review-seal: nothing was reviewed\. The scheduled pull request was closed/);
+  assert.deepEqual(reviewerCalls(log), []);
+  const o = step(r.root, 'Open or update the pull request', r.env);
+  assert.equal(o.code, 0, o.err);
+  assert.equal(remoteTip(r), before);
+  assert.doesNotMatch(readFileSync(r.calls, 'utf8'), /^pr (create|edit)/m);
+});
+
+test('action, mode "due": a failed review is annotated on its file', () => {
+  const r = dueRepo();
+  const d = step(r.root, 'Re-review what is due', { ...r.env, FAKE_CLAUDE_MODE: 'fail' });
+  assert.equal(d.code, 0, d.err);
+  assert.match(d.out, /^::error file=docs\/guide\.md::review-seal: reviewer exited 1: boom/m);
 });

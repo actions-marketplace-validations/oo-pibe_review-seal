@@ -131,6 +131,8 @@ runs:
       shell: bash
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        # Only to read the scheduled pull request's state; unset before the reviewer runs.
+        GH_TOKEN: ${{ inputs.github-token }}
       run: |
         cd "$(git rev-parse --show-toplevel)"
         LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
@@ -147,6 +149,16 @@ runs:
             echo "::warning::review-seal: review-seal/scheduled has commits from people; not overwriting. Merge or close the pull request and delete the branch to resume."
             if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
               echo "review-seal: nothing was reviewed. review-seal/scheduled has commits from people; merge or close its pull request and delete the branch to resume." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            touch "$RUNNER_TEMP/review-seal-due.skip"
+            exit 0
+          fi
+          # A pull request someone closed without merging means "stop", so nothing is reviewed (or paid for) until
+          # the branch is deleted.
+          if [ "$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)" = "CLOSED" ]; then
+            echo "::warning::review-seal: the scheduled pull request was closed; delete the review-seal/scheduled branch to resume"
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              echo "review-seal: nothing was reviewed. The scheduled pull request was closed; delete the review-seal/scheduled branch to resume." >> "$GITHUB_STEP_SUMMARY"
             fi
             touch "$RUNNER_TEMP/review-seal-due.skip"
             exit 0
@@ -170,9 +182,24 @@ runs:
         }
         trap restore_auth EXIT
         git config --local --unset-all http.https://github.com/.extraheader || true
+        unset GH_TOKEN
         STATUS=0
-        node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --due 2>&1 | tee "$RUNNER_TEMP/review-seal-due.log" || STATUS=$?
+        SUMMARY="$RUNNER_TEMP/review-seal-due.json"
+        rm -f "$SUMMARY"
+        node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --due --json "$SUMMARY" 2>&1 | tee "$RUNNER_TEMP/review-seal-due.log" || STATUS=$?
         echo "$STATUS" > "$RUNNER_TEMP/review-seal-due.status"
+        # A failed review shows as an error on its file, as in pull request mode.
+        node --input-type=module -e '
+          import fs from "node:fs";
+          import { pathToFileURL } from "node:url";
+          const { sanitizeText, ciSafe, ghData, ghProp } = await import(pathToFileURL(process.env.GITHUB_ACTION_PATH + "/lib/text.js"));
+          let s;
+          try { s = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { process.exit(0); }
+          const t = (x) => ciSafe(sanitizeText(x), { GITHUB_ACTIONS: "true" });
+          for (const f of Array.isArray(s.failed) ? s.failed : []) {
+            process.stdout.write(`::error file=${ghProp(t(f.file))}::${ghData(t("review-seal: " + f.error))}\n`);
+          }
+        ' "$SUMMARY" || true
     - name: Open or update the pull request
       if: inputs.mode == 'due'
       shell: bash
