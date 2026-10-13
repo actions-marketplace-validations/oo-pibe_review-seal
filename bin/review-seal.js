@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 import { main } from '../lib/cli.js';
+import { sanitizeText, ciSafe } from '../lib/text.js';
 
 main(process.argv.slice(2)).then(
   (code) => { process.exitCode = code; },
-  (err) => { process.stderr.write(`review-seal: ${process.env.REVIEW_SEAL_DEBUG ? err.stack || err.message : err.message}\n`); process.exitCode = 2; },
+  (err) => {
+    // An unexpected error can quote a file name or git's output, so it is printed as plain text, line by line.
+    const text = process.env.REVIEW_SEAL_DEBUG ? err.stack || err.message : err.message;
+    process.stderr.write(String(text).split('\n').map((l, i) => ciSafe(`${i ? '  ' : 'review-seal: '}${sanitizeText(l)}`)).join('\n') + '\n');
+    process.exitCode = 2;
+  },
 );

@@ -391,7 +391,7 @@ test('action, mode "due": failed reviews fail the run, after the pull request fo
 test('action, mode "due": the PR body is fenced safely and kept under GitHub\'s limit', () => {
   const r = dueRepo();
   assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
-  writeFileSync(join(runnerTemp.get(r.root), 'review-seal-due.log'), 'L1: ~~~~~ breaks out\n' + 'x'.repeat(70000));
+  writeFileSync(join(runnerTemp.get(r.root), 'review-seal-due.log'), 'L1: ~~~~~ breaks out\n' + ('x'.repeat(700) + '\n').repeat(100));
   assert.equal(step(r.root, 'Open or update the pull request', r.env).code, 0);
   const body = readFileSync(r.calls + '.body', 'utf8');
   assert.ok(body.length < 61000, String(body.length));
