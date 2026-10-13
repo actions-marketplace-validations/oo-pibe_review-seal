@@ -18,10 +18,15 @@ test('review/check --changed-since behave as the Action uses them', () => {
   assert.equal(run(root, ['check', '--changed-since', 'origin/main']).code, 0);
 });
 
-test('pre-commit manifest points at check --staged', () => {
+// language: script runs the file from the hook repo's checkout with the system node; language: node would
+// have pre-commit npm-install the repo, which npm 11 refuses for git sources.
+test('pre-commit manifest runs the script directly with check --staged', () => {
   const y = readFileSync(new URL('../.pre-commit-hooks.yaml', import.meta.url), 'utf8');
-  assert.match(y, /entry: review-seal check --staged/);
-  assert.match(y, /language: node/);
+  assert.match(y, /^ {2}entry: bin\/review-seal\.js$/m);
+  assert.match(y, /^ {2}args: \[check, --staged\]$/m);
+  assert.match(y, /^ {2}language: script$/m);
+  assert.match(y, /^ {2}pass_filenames: false$/m);
+  assert.match(y, /^ {2}always_run: true$/m);
 });
 
 // Expressions may appear only as an input default, an if: condition or an env: value, never in a run: body.

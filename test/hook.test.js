@@ -1,6 +1,6 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, symlinkSync, realpathSync, unlinkSync, utimesSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, realpathSync, unlinkSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -115,7 +115,9 @@ test('hooks are silent and exit 0: no config, not a repo, broken config, inside 
 });
 
 // A root that is not a git repository: listing its files would throw, so these prove the hook never listed.
-const NO_REPO = join(tmpdir(), 'review-seal-no-such-repo');
+// A directory of its own that is not a git repository (the Bash case below writes session state into it).
+const NO_REPO = mkdtempSync(join(tmpdir(), 'review-seal-no-repo-'));
+after(() => rmSync(NO_REPO, { recursive: true, force: true }));
 const CFG = { passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**/*.md'] } }, autoReview: 'stop' };
 
 test('post-tool: tools that cannot edit files return at once, without listing the repo', () => {
@@ -137,8 +139,9 @@ test('post-tool: a Bash command naming nothing like a covered path returns witho
 });
 
 
-test('post-tool: a Bash command that passes the pre-filter marks the session for a scan before listing the repo', () => {
+test('post-tool: a Bash command that passes the pre-filter marks the session for a scan before listing the repo', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'review-seal-not-a-repo-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const b = { session_id: 'scan1', cwd: dir, tool_name: 'Bash', tool_input: { command: 'cd docs && sed -i x guide.md' } };
   assert.throws(() => onPostTool(b, dir, CFG));
   const s = JSON.parse(readFileSync(join(dir, '.seal/.state/session-scan1.json'), 'utf8'));
