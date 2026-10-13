@@ -8,14 +8,13 @@ export const BIN = fileURLToPath(new URL('../bin/review-seal.js', import.meta.ur
 export const FAKE_CLAUDE = fileURLToPath(new URL('./fixtures/fake-claude.js', import.meta.url));
 chmodSync(FAKE_CLAUDE, 0o755);
 
-export function cleanEnv() {
-  const env = { ...process.env };
-  for (const k of Object.keys(env)) {
-    if (k.startsWith('GIT_') || k.startsWith('CLAUDE') || k.startsWith('FAKE_CLAUDE_')) delete env[k];
-  }
-  delete env.REVIEW_SEAL_CHILD;
-  return { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', TZ: 'UTC' };
+for (const k of Object.keys(process.env)) {
+  if (/^(GIT_|CLAUDE|FAKE_CLAUDE_)/.test(k)) delete process.env[k];
 }
+delete process.env.REVIEW_SEAL_CHILD;
+Object.assign(process.env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', TZ: 'UTC' });
+
+export const cleanEnv = () => ({ ...process.env });
 
 export function write(root, p, c) {
   mkdirSync(dirname(join(root, p)), { recursive: true });
