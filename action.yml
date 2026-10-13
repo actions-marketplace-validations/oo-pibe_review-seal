@@ -1,0 +1,54 @@
+name: review-seal
+description: Review changed files with an independent Claude reviewer, record the seals, and fail if any covered file still lacks a fresh review.
+author: oo-pibe
+branding:
+  icon: check-square
+  color: green
+inputs:
+  anthropic-api-key:
+    description: Anthropic API key for the reviewer. Pass it from a repository secret.
+    required: true
+  base:
+    description: Branch to compare against. Changed files are found from the merge base with origin/<base>, so check out with actions/checkout and fetch-depth 0.
+    required: false
+    default: ${{ github.base_ref }}
+  commit:
+    description: Commit the updated ledger back to the pull request branch ("true" or "false").
+    required: false
+    default: "true"
+  claude-code-version:
+    description: Version of @anthropic-ai/claude-code to install.
+    required: false
+    default: "2.1.251"
+runs:
+  using: composite
+  steps:
+    - name: Install Claude Code
+      shell: bash
+      env:
+        CC_VERSION: ${{ inputs.claude-code-version }}
+      run: npm install -g "@anthropic-ai/claude-code@${CC_VERSION}"
+    - name: Review changed files
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        BASE: ${{ inputs.base }}
+      run: node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" || true
+    - name: Commit the ledger
+      if: inputs.commit == 'true'
+      shell: bash
+      run: |
+        if ! git diff --quiet -- .seal/ledger.json; then
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .seal/ledger.json
+          git commit -m "review-seal: record independent reviews"
+          git push
+        fi
+    - name: Check
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+      run: |
+        git rev-parse --verify --quiet "origin/${BASE}" >/dev/null || { echo "review-seal: origin/${BASE} not found; use actions/checkout with fetch-depth: 0" >&2; exit 2; }
+        node "$GITHUB_ACTION_PATH/bin/review-seal.js" check --changed-since "origin/${BASE}"

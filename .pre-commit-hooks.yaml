@@ -1,0 +1,7 @@
+- id: review-seal
+  name: review-seal
+  description: Block commits of covered files that lack a fresh independent review.
+  entry: review-seal check --staged
+  language: node
+  pass_filenames: false
+  always_run: true
