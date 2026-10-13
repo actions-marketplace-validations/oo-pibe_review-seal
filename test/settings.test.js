@@ -183,3 +183,67 @@ test('a checklist the base config already names outside .seal/ stays a settings 
   const c = staged(r);
   assert.doesNotMatch(c.err, /review settings/);
 });
+
+// A merge is judged per side, as --changed-since judges a branch: each side's own changes since the merge base.
+test('a merge of a settings commit and a separate content commit is not blocked', () => {
+  const r = base();
+  const i = run(r.root, ['install-hook']);
+  assert.equal(i.code, 0, i.err);
+  r.git('add', '-A'); r.git('commit', '-qm', 'hooks', '--no-verify');
+  r.git('checkout', '-qb', 'feature');
+  write(r.root, 'src/feat.js', 'feature\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'feat');
+  r.git('checkout', '-q', 'main');
+  write(r.root, '.seal/config.json', JSON.stringify({ passes: { ...TWO.passes, consistency: { ...TWO.passes.consistency, maxAgeDays: 90 } } }));
+  r.git('add', '-A'); r.git('commit', '-qm', 'settings');
+  write(r.root, 'src/app.js', 'console.log(2);\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'content');
+  r.git('checkout', '-q', 'feature');
+  // git merge runs pre-merge-commit, which runs check --staged.
+  r.git('merge', '-q', '--no-edit', 'main');
+  assert.match(r.git('log', '-1', '--format=%s'), /^Merge branch 'main'/);
+});
+
+test('a merge where one side mixed settings and content itself is still blocked', () => {
+  const r = base();
+  r.git('checkout', '-qb', 'feature');
+  write(r.root, '.seal/config.json', JSON.stringify({ passes: { consistency: TWO.passes.consistency } }));
+  write(r.root, 'src/app.js', 'console.log(2);\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'mixed', '--no-verify');
+  r.git('checkout', '-q', 'main');
+  write(r.root, 'src/other.js', 'other\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'other');
+  r.git('merge', '-q', '--no-commit', '--no-ff', 'feature');
+  const c = staged(r);
+  assert.equal(c.code, 1, c.err);
+  assert.match(c.err, /review settings \(\.seal\/config\.json\)/);
+  // The same merge seen from the other side blocks too.
+  r.git('merge', '--abort');
+  r.git('checkout', '-q', 'feature');
+  r.git('merge', '-q', '--no-commit', '--no-ff', 'main');
+  const d = staged(r);
+  assert.equal(d.code, 1, d.err);
+  assert.match(d.err, /review settings \(\.seal\/config\.json\)/);
+});
+
+test('concluding a conflicted merge with git commit judges each side too', () => {
+  const r = base();
+  run(r.root, ['install-hook']);
+  r.git('add', '-A'); r.git('commit', '-qm', 'hooks', '--no-verify');
+  r.git('checkout', '-qb', 'feature');
+  write(r.root, 'src/app.js', 'console.log("feature");\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'feat');
+  r.git('checkout', '-q', 'main');
+  write(r.root, '.seal/config.json', JSON.stringify({ passes: { ...TWO.passes, consistency: { ...TWO.passes.consistency, maxAgeDays: 90 } } }));
+  r.git('add', '-A'); r.git('commit', '-qm', 'settings');
+  write(r.root, 'src/app.js', 'console.log("main");\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'content');
+  r.git('checkout', '-q', 'feature');
+  assert.throws(() => r.git('merge', '-q', '--no-edit', 'main'));
+  assert.match(r.git('status'), /[Uu]nmerged/);
+  write(r.root, 'src/app.js', 'console.log("both");\n');
+  r.git('add', 'src/app.js');
+  const c = staged(r);
+  assert.equal(c.code, 0, c.err);
+  r.git('commit', '-qm', 'merge main');
+});
