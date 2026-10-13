@@ -60,3 +60,25 @@ test('needsReview mirrors the same rules', () => {
   assert.equal(needsReview('docs/a.md', 'consistency', seal(), { ...h, rubricHash: R2 }, cfg()), true);
   assert.equal(needsReview('docs/a.md', 'consistency', seal({ reviewer: 'builder', via: 'manual' }), h, cfg({ independentFrom: '2026-01-01' })), true);
 });
+
+const trivial = { substantive: false, why: 'tiny' };
+
+test('a trivial stale warning does not hide a rubric-changed block', () => {
+  const r = evaluate([item({ contentHash: H2, rubricHashes: { consistency: R2 }, change: trivial })], seal(), cfg());
+  assert.deepEqual(r.blocks.map((b) => b.reason), ['rubric-changed']);
+  assert.deepEqual(r.warnings.map((b) => b.reason), ['stale']);
+});
+
+test('a trivial stale warning does not hide a self-review block', () => {
+  const b = seal({ reviewer: 'builder', via: 'manual' });
+  const r = evaluate([item({ contentHash: H2, change: trivial })], b, cfg({ independentFrom: '2026-10-12' }));
+  assert.deepEqual(r.blocks.map((x) => x.reason), ['self-review']);
+  assert.deepEqual(r.warnings.map((x) => x.reason), ['stale']);
+});
+
+test('a trivial stale warning does not hide a findings block', () => {
+  const f = seal({ verdict: 'findings', findings: ['L1: wrong'] });
+  const r = evaluate([item({ contentHash: H2, change: trivial })], f, cfg({ blockOnFindings: true }));
+  assert.deepEqual(r.blocks.map((x) => x.reason), ['findings']);
+  assert.deepEqual(r.warnings.map((x) => x.reason), ['stale']);
+});
