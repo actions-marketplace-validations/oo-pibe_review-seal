@@ -18,7 +18,7 @@ const entry = (at) => makeEntry('docs/a.md', 'fact-check', { at, contentHash: 's
 test('config validates maxAgeDays and tools', () => {
   assert.equal(cfgWith({}).passes['fact-check'].maxAgeDays, null);
   assert.deepEqual(cfgWith({}).passes['fact-check'].tools, []);
-  assert.deepEqual(cfgWith({ tools: ['WebSearch', 'WebFetch'] }).passes['fact-check'].tools, ['WebSearch', 'WebFetch']);
+  assert.deepEqual(cfgWith({ tools: ['WebSearch', 'WebFetch'], fetchDomains: ['example.com'] }).passes['fact-check'].tools, ['WebSearch', 'WebFetch']);
   assert.throws(() => cfgWith({ tools: ['Write'] }), /only WebSearch and WebFetch/);
   assert.throws(() => cfgWith({ maxAgeDays: 0 }), /positive whole number/);
 });
@@ -48,14 +48,16 @@ test('fact-check passes give the reviewer web tools, and only those', async () =
   const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
   process.env.FAKE_CLAUDE_LOG = log;
   try {
-    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222', tools: ['WebSearch', 'WebFetch'] }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
+    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222', tools: ['WebSearch', 'WebFetch'], fetchDomains: ['example.com', '*.gov.uk'] }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
   } finally { delete process.env.FAKE_CLAUDE_LOG; }
   const { args } = JSON.parse(readFileSync(log, 'utf8').trim());
   const toolsAt = args.indexOf('--tools');
   assert.deepEqual(args.slice(toolsAt + 1, toolsAt + 6), ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch']);
   const allowAt = args.indexOf('--allowedTools');
-  assert.deepEqual(args.slice(allowAt + 1, allowAt + 3), ['WebSearch', 'WebFetch']);
+  assert.deepEqual(args.slice(allowAt + 1, allowAt + 4), ['WebSearch', 'WebFetch(domain:example.com)', 'WebFetch(domain:*.gov.uk)']);
+  assert.ok(!args.slice(allowAt + 1).includes('WebFetch'), 'WebFetch is never allowed without a domain');
   assert.match(args[args.indexOf('-p') + 1], /source URL/);
+  assert.match(args[args.indexOf('-p') + 1], /example\.com, \*\.gov\.uk/);
 });
 
 test('an aged review shows as EXPIRED, fails check, and review --due renews it', () => {
@@ -104,7 +106,8 @@ test('a review-by date in front matter blocks check, and the hint names review -
   const c = run(root, ['check']);
   assert.equal(c.code, 1);
   assert.match(c.err, /before the file's review-by date 2021-01-01; due for a fresh review/);
-  assert.match(c.err, /review-seal review --due\n/);
+  assert.match(c.err, /review-seal review docs\/guide\.md\n/);
+  assert.match(c.err, /\(or review-seal review --due for everything past its shelf life\)/);
   assert.equal(run(root, ['review', '--due']).code, 0);
   assert.equal(run(root, ['check']).code, 0);
 });
@@ -161,4 +164,61 @@ test('review --due or --all with files or --changed-since is bad usage', () => {
     assert.equal(r.code, 2, args.join(' '));
     assert.match(r.err, new RegExp(`use --${args.includes('--due') ? 'due' : 'all'} on its own, or name files`));
   }
+});
+
+test('WebFetch needs a list of domains, and the list is checked', () => {
+  assert.throws(() => cfgWith({ tools: ['WebFetch'] }), /"fetchDomains"/);
+  assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [] }), /"fetchDomains"/);
+  for (const bad of ['*', 'a.*.com', 'http://x.com', 'x.com/path', '.x.com', 'x..com', 'x com', '*.', 7]) {
+    assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [bad] }), /"fetchDomains"/, String(bad));
+  }
+  assert.throws(() => cfgWith({ fetchDomains: ['x.com'] }), /needs WebFetch/);
+  assert.deepEqual(cfgWith({ tools: ['WebFetch'], fetchDomains: ['x.com', '*.gov.uk'] }).passes['fact-check'].fetchDomains, ['x.com', '*.gov.uk']);
+  assert.deepEqual(cfgWith({}).passes['fact-check'].fetchDomains, []);
+});
+
+test('the reviewer is always denied secrets and git internals', async () => {
+  const { root } = sealRepo();
+  const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
+  process.env.FAKE_CLAUDE_LOG = log;
+  try {
+    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222' }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
+  } finally { delete process.env.FAKE_CLAUDE_LOG; }
+  const { args } = JSON.parse(readFileSync(log, 'utf8').trim());
+  const at = args.indexOf('--disallowedTools');
+  assert.ok(at > 0);
+  const denied = args.slice(at + 1, args.findIndex((x, i) => i > at && x.startsWith('--')));
+  for (const r of ['Read(./.git/**)', 'Read(**/.env*)', 'Read(**/*.pem)', 'Read(**/*.key)']) assert.ok(denied.includes(r), r);
+});
+
+test('secrets are scrubbed from findings', async () => {
+  const { redactSecrets, readVerdict } = await import('../lib/reviewer.js');
+  const samples = [
+    'ghp_' + 'a'.repeat(36), 'gho_' + 'B'.repeat(36), 'ghs_' + '1'.repeat(36), 'ghu_' + 'c'.repeat(36), 'github_pat_' + 'd'.repeat(40),
+    'sk-ant-api03-' + 'e'.repeat(40), 'AKIA' + 'ABCDEFGHIJKLMNOP',
+  ];
+  for (const x of samples) assert.equal(redactSecrets(`L3: leaked ${x} here`), 'L3: leaked [redacted] here', x);
+  assert.equal(redactSecrets('L1: AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46Z2hzX3h4eA=='), 'L1: AUTHORIZATION: basic [redacted]');
+  assert.equal(redactSecrets('L1: Authorization: Bearer abc.def-ghi'), 'L1: Authorization: Bearer [redacted]');
+  assert.equal(redactSecrets('L1: key -----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY----- end'), 'L1: key [redacted] end');
+  assert.equal(redactSecrets('L1: -----BEGIN OPENSSH PRIVATE KEY----- MIIE…'), 'L1: [redacted]');
+  assert.equal(redactSecrets('L2: says passport here'), 'L2: says passport here');
+  const job = { file: 'a.md', pass: 'p', contentHash: 'x', rubricHash: 'y' };
+  const r = readVerdict(JSON.stringify({ ...job, verdict: 'findings', findings: ['L1: token ghp_' + 'a'.repeat(36)] }), job);
+  assert.deepEqual(r.verdict.findings, ['L1: token [redacted]']);
+});
+
+test('review --all ignores shelf life; --due and named files include it', () => {
+  const { root } = sealRepo({ passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**/*.md'], maxAgeDays: 30 } } });
+  const text = readFileSync(join(root, 'docs/guide.md'), 'utf8');
+  const rubric = readFileSync(join(root, '.seal/rubrics/consistency.md'), 'utf8');
+  const old = makeEntry('docs/guide.md', 'consistency', { at: '2020-01-01', contentHash: contentHash(text), rubricHash: contentHash(rubric), verdict: 'clean', findings: [], reviewer: 'independent', via: 'agent' });
+  write(root, '.seal/ledger.json', JSON.stringify({ 'docs/guide.md': { consistency: old } }));
+  const all = run(root, ['review', '--all']);
+  assert.equal(all.code, 0);
+  assert.match(all.out, /nothing needs review/);
+  assert.match(run(root, ['review', 'docs/guide.md']).out, /docs\/guide\.md \[consistency\] clean/);
+  write(root, '.seal/ledger.json', JSON.stringify({ 'docs/guide.md': { consistency: old } }));
+  assert.match(run(root, ['review', '--due']).out, /docs\/guide\.md \[consistency\] clean/);
+  assert.match(run(root, ['--help']).out, /--all .*ignores shelf life/);
 });
