@@ -100,6 +100,21 @@ test('user-prompt: delivers findings once', () => {
   assert.equal(hook(root, 'user-prompt', {}).out, '');
 });
 
+test('user-prompt: errors say when the review is retried and how to retry now; findings keep their tail', () => {
+  const { root } = sealRepo();
+  mkdirSync(join(root, '.seal/.state'), { recursive: true });
+  const RETRY = /Automatic retry after 10 minutes; run \/review-seal:review docs\/x\.md to retry now\./;
+  const FIX = /Fixing a finding changes the file, so it will be reviewed again automatically\./;
+  appendInbox(root, [{ file: 'docs/x.md', pass: 'consistency', error: 'boom' }]);
+  const e = ctx(hook(root, 'user-prompt', {}));
+  assert.match(e, RETRY);
+  assert.doesNotMatch(e, FIX);
+  appendInbox(root, [{ file: 'docs/guide.md', pass: 'consistency', findings: ['L1: wrong'] }]);
+  const f = ctx(hook(root, 'user-prompt', {}));
+  assert.match(f, FIX);
+  assert.doesNotMatch(f, /Automatic retry/);
+});
+
 test('hooks are silent and exit 0: no config, not a repo, broken config, inside a reviewer', () => {
   const plain = tmpRepo().root;
   assert.deepEqual([hook(plain, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(plain, 'a.md') } }).code, hook(plain, 'post-tool', {}).out], [0, '']);
