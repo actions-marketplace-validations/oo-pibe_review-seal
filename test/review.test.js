@@ -263,3 +263,28 @@ test('inbox: items carry their session; a drain takes its own, untagged and day-
   assert.deepEqual(drainInbox(root, 'A'), []);
   assert.deepEqual(drainInbox(root, 'B').map((i) => i.file), ['fresh-B']);
 });
+
+test('lockWait: a run waits for a held lock and goes ahead once it is released', async () => {
+  const { root } = sealRepo();
+  const cfg = loadConfig(root);
+  putLock(root, JSON.stringify({ pid: process.pid, nonce: 'other' }));
+  setTimeout(() => unlinkSync(lockPath(root)), 300);
+  const t0 = Date.now();
+  const r = await reviewFiles(root, cfg, ['docs/guide.md'], { run: fake(), lockWait: { ms: 5000, pollMs: 100 } });
+  assert.equal(r.skipped, undefined);
+  assert.equal(r.reviewed.length, 1);
+  assert.ok(Date.now() - t0 >= 250);
+});
+
+test('lockWait: still locked at the deadline, the session is told in its inbox what to run', async () => {
+  const { root } = sealRepo();
+  const cfg = loadConfig(root);
+  putLock(root, JSON.stringify({ pid: process.pid, nonce: 'other' }));
+  const r = await reviewFiles(root, cfg, ['docs/guide.md'], { run: fake(), lockWait: { ms: 300, pollMs: 100 }, session: 'B' });
+  assert.equal(r.skipped, 'locked');
+  const items = drainInbox(root, 'B');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].file, 'docs/guide.md');
+  assert.equal(items[0].session, 'B');
+  assert.equal(items[0].error, 'review skipped because another review was still running; run review-seal review docs/guide.md');
+});

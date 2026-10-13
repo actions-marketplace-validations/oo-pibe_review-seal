@@ -120,3 +120,30 @@ test('review refuses a symlink', () => {
   assert.equal(r.code, 2);
   assert.match(r.err, /docs\/link\.md is a symlink; review-seal skips symlinks/);
 });
+
+test('two stops close together: the second review --auto waits for the first instead of skipping', async () => {
+  const { spawn } = await import('node:child_process');
+  const { BIN, cleanEnv } = await import('./helpers.js');
+  const { root } = sealRepo({ timeoutSeconds: 1 });
+  write(root, 'docs/b.md', 'b\n');
+  const env = { ...cleanEnv(), REVIEW_SEAL_CLAUDE: FAKE_CLAUDE };
+  const slow = spawn(process.execPath, [BIN, 'review', '--auto', '--session=A', '--', 'docs/guide.md'], { cwd: root, env: { ...env, FAKE_CLAUDE_MODE: 'sleep' }, stdio: 'ignore' });
+  const done = new Promise((res) => slow.on('exit', res));
+  for (let i = 0; i < 100 && !existsSync(join(root, '.seal/.state/review.lock')); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(existsSync(join(root, '.seal/.state/review.lock')));
+  const r = run(root, ['review', '--auto', '--session=B', '--', 'docs/b.md']);
+  await done;
+  assert.equal(r.code, 0);
+  const log = readFileSync(join(root, '.seal/.state/review.log'), 'utf8');
+  assert.doesNotMatch(log, /skipping/);
+  assert.match(run(root, ['list']).out, /docs\/b\.md\n\s+consistency\s+fresh/);
+});
+
+test('a manual review that finds the lock held names the command to retry', () => {
+  const { root } = sealRepo();
+  mkdirSync(join(root, '.seal/.state'), { recursive: true });
+  writeFileSync(join(root, '.seal/.state/review.lock'), JSON.stringify({ pid: process.pid, nonce: 'x' }));
+  const r = run(root, ['review', 'docs/guide.md']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /another review is already running; run review-seal review docs\/guide\.md when it finishes/);
+});
