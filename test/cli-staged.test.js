@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, copyFileSync, chmodSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sealRepo, run, write } from './helpers.js';
 
@@ -116,4 +117,31 @@ test('git commit -a carries the review', () => {
   const h = run(root, ['hash', 'docs/guide.md']).out.trim();
   assert.equal(ledgerAt(git, 'HEAD')['docs/guide.md'].consistency.contentHash, h);
   git('diff', '--cached', '--quiet', '--', '.seal/ledger.json');
+});
+
+test('a ledger that cannot be staged blocks the commit with a plain instruction', (t) => {
+  if (process.getuid?.() === 0) return t.skip('root ignores directory permissions');
+  const { root, git } = sealRepo();
+  run(root, ['review', 'docs/guide.md']);
+  git('add', 'docs/guide.md');
+  const ro = mkdtempSync(join(tmpdir(), 'review-seal-ro-'));
+  copyFileSync(join(root, '.git/index'), join(ro, 'index'));
+  chmodSync(ro, 0o555);
+  try {
+    const r = run(root, ['check', '--staged'], { env: { GIT_INDEX_FILE: join(ro, 'index') } });
+    assert.equal(r.code, 1);
+    assert.match(r.err, /review-seal: could not stage \.seal\/ledger\.json into the index; run git add \.seal\/ledger\.json and commit again/);
+  } finally { chmodSync(ro, 0o755); }
+});
+
+test('an alternate index outside the git dir leaves the repository index alone', () => {
+  const { root, git } = sealRepo();
+  git('add', '.seal', 'src/app.js'); git('commit', '-qm', 'base');
+  run(root, ['review', 'docs/guide.md']);
+  git('add', 'docs/guide.md');
+  const alt = join(mkdtempSync(join(tmpdir(), 'review-seal-alt-')), 'index');
+  copyFileSync(join(root, '.git/index'), alt);
+  const r = run(root, ['check', '--staged'], { env: { GIT_INDEX_FILE: alt } });
+  assert.equal(r.code, 0, r.err);
+  assert.doesNotMatch(git('diff', '--cached', '--name-only'), /ledger\.json/);
 });

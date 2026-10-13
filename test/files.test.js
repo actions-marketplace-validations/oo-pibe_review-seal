@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { sealRepo, write } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { coveredFiles, rubricHashes } from '../lib/files.js';
-import { repoRoot, stagedFiles, stagedContent, stagedDiff, changedSince, stageFile } from '../lib/git.js';
+import { repoRoot, stagedFiles, stagedContent, stagedDiff, changedSince, stageBlob } from '../lib/git.js';
 import { contentHash } from '../lib/hash.js';
 
 test('coveredFiles: tracked and untracked, matching a pass, existing', () => {
@@ -58,8 +58,7 @@ test('git helpers treat names literally', () => {
   assert.match(stagedDiff(root, ':colon.md'), /\+c/);
   assert.equal(stagedContent(root, '1:x.md'), 'top\n');
   assert.equal(stagedContent(root, ':colon.md'), 'c\n');
-  write(root, 'docs/[a].md', 'changed\n');
-  stageFile(root, 'docs/[a].md');
+  stageBlob(root, 'docs/[a].md', 'changed\n');
   assert.equal(stagedContent(root, 'docs/[a].md'), 'changed\n');
   assert.equal(stagedContent(root, 'docs/a.md'), 'two\n');
 });
