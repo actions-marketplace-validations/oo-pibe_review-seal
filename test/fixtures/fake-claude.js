@@ -9,7 +9,7 @@ const prompt = args[args.indexOf('-p') + 1] || '';
 const pick = (k) => (prompt.match(new RegExp(`"${k}":"([^"]*)"`)) || [])[1];
 const v = { file: pick('file'), pass: pick('pass'), contentHash: pick('contentHash'), rubricHash: pick('rubricHash') };
 const mode = process.env.FAKE_CLAUDE_MODE || 'clean';
-if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ ...v, args }) + '\n');
+if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ ...v, args, pid: process.pid, claudecode: process.env.CLAUDECODE ?? null, projectDir: process.env.CLAUDE_PROJECT_DIR ?? null, child: process.env.REVIEW_SEAL_CHILD ?? null }) + '\n');
 
 if (mode === 'fail') { process.stderr.write('boom'); process.exit(1); }
 if (mode === 'sleep') { setTimeout(() => {}, 60_000); }
