@@ -57,6 +57,10 @@ test('editing the rubric blocks', () => {
   run(root, ['review', 'docs/guide.md']);
   git('add', '-A'); git('commit', '-qm', 'r');
   write(root, '.seal/rubrics/consistency.md', 'A stricter checklist.\n');
+  // A checklist change goes in on its own (settings never travel with content).
+  git('add', '-A');
+  assert.equal(run(root, ['check', '--staged']).code, 0);
+  git('commit', '-qm', 'stricter');
   // whitespace-only edit: stages the file without changing its content hash
   write(root, 'docs/guide.md', 'Visitors can buy tickets with a passport.   \n');
   git('add', '-A');
