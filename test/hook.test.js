@@ -1,0 +1,113 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, symlinkSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { sealRepo, tmpRepo, write, run, FAKE_CLAUDE } from './helpers.js';
+import { touchedFiles } from '../lib/hook.js';
+import { appendInbox } from '../lib/review.js';
+
+const hook = (root, event, payload, env) => run(root, ['hook', event], { input: JSON.stringify({ session_id: 's1', cwd: root, ...payload }), env });
+const ctx = (r) => (r.out ? JSON.parse(r.out).hookSpecificOutput.additionalContext : '');
+
+test('touchedFiles: edit tools by path, Bash by any path form in the command', () => {
+  const covered = ['docs/guide.md', 'docs/other.md'];
+  const root = '/repo';
+  assert.deepEqual(touchedFiles({ tool_name: 'Edit', tool_input: { file_path: '/repo/docs/guide.md' }, cwd: root }, root, covered), ['docs/guide.md']);
+  assert.deepEqual(touchedFiles({ tool_name: 'Write', tool_input: { file_path: '/repo/src/x.js' }, cwd: root }, root, covered), []);
+  assert.deepEqual(touchedFiles({ tool_name: 'Bash', tool_input: { command: "python3 - <<'EOF'\nopen('docs/other.md','w')\nEOF" }, cwd: root }, root, covered), ['docs/other.md']);
+  assert.deepEqual(touchedFiles({ tool_name: 'Bash', tool_input: { command: 'sed -i "" s/a/b/ guide.md' }, cwd: '/repo/docs' }, root, covered), ['docs/guide.md']);
+  assert.deepEqual(touchedFiles({ tool_name: 'Read', tool_input: { file_path: '/repo/docs/guide.md' }, cwd: root }, root, covered), []);
+});
+
+// Claude Code may report paths through a symlinked alias of the repo (macOS: /var vs /private/var),
+// while git reports the real path as the root.
+function aliasOf(root) {
+  try {
+    const link = join(mkdtempSync(join(tmpdir(), 'review-seal-alias-')), 'repo');
+    symlinkSync(root, link, 'dir');
+    return realpathSync(link) === root && link !== root ? link : null;
+  } catch { return null; }
+}
+
+test('touchedFiles: paths through a non-realpath alias of the repo map into the repo', (t) => {
+  const { root } = sealRepo();
+  const alias = aliasOf(root);
+  if (!alias) return t.skip('cannot make a symlink alias here');
+  const covered = ['docs/guide.md', 'docs/new.md'];
+  assert.deepEqual(touchedFiles({ tool_name: 'Edit', tool_input: { file_path: join(alias, 'docs/guide.md') }, cwd: alias }, root, covered), ['docs/guide.md']);
+  assert.deepEqual(touchedFiles({ tool_name: 'Write', tool_input: { file_path: join(alias, 'docs/new.md') }, cwd: alias }, root, covered), ['docs/new.md']);
+  assert.deepEqual(touchedFiles({ tool_name: 'Edit', tool_input: { file_path: 'guide.md' }, cwd: join(alias, 'docs') }, root, covered), ['docs/guide.md']);
+  assert.deepEqual(touchedFiles({ tool_name: 'Bash', tool_input: { command: `cat > ${join(alias, 'docs/guide.md')}` }, cwd: '/' }, root, covered), ['docs/guide.md']);
+  assert.deepEqual(touchedFiles({ tool_name: 'Bash', tool_input: { command: 'sed -i "" s/a/b/ guide.md' }, cwd: join(alias, 'docs') }, root, covered), ['docs/guide.md']);
+  assert.deepEqual(touchedFiles({ tool_name: 'Edit', tool_input: { file_path: join(alias, 'src/app.js') }, cwd: alias }, root, covered), []);
+});
+
+test('post-tool: fires when the payload uses an alias of the repo path', (t) => {
+  const { root } = sealRepo();
+  const alias = aliasOf(root);
+  if (!alias) return t.skip('cannot make a symlink alias here');
+  const r = hook(root, 'post-tool', { cwd: alias, tool_name: 'Edit', tool_input: { file_path: join(alias, 'docs/guide.md') } });
+  assert.match(ctx(r), /docs\/guide\.md \[consistency\]: review is now out of date/);
+});
+
+test('post-tool: says the review is stale and briefs the rubric once per session', () => {
+  const { root } = sealRepo();
+  const p = { hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } };
+  const first = ctx(hook(root, 'post-tool', p));
+  assert.match(first, /docs\/guide\.md \[consistency\]: review is now out of date/);
+  assert.match(first, /Does the text contradict itself\?/);
+  const second = ctx(hook(root, 'post-tool', p));
+  assert.doesNotMatch(second, /contradict itself/);
+});
+
+test('post-tool after a heredoc edit through Bash still fires', () => {
+  const { root } = sealRepo();
+  const r = hook(root, 'post-tool', { tool_name: 'Bash', tool_input: { command: "cat > docs/guide.md <<'EOF'\nnew\nEOF" } });
+  assert.match(ctx(r), /out of date/);
+});
+
+test('stop: starts a background review of files touched this session', async () => {
+  const { root } = sealRepo();
+  hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } });
+  const r = hook(root, 'stop', { hook_event_name: 'Stop' }, { REVIEW_SEAL_CLAUDE: FAKE_CLAUDE });
+  assert.equal(r.code, 0);
+  for (let i = 0; i < 50 && !existsSync(join(root, '.seal/ledger.json')); i++) await sleep(100);
+  for (let i = 0; i < 50 && existsSync(join(root, '.seal/.state/review.lock')); i++) await sleep(100);
+  const led = JSON.parse(readFileSync(join(root, '.seal/ledger.json'), 'utf8'));
+  assert.equal(led['docs/guide.md'].consistency.reviewer, 'independent');
+});
+
+test('stop: does nothing when autoReview is off or nothing was touched', () => {
+  const off = sealRepo({ autoReview: 'off' }).root;
+  hook(off, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(off, 'docs/guide.md') } });
+  hook(off, 'stop', {});
+  const quiet = sealRepo().root;
+  hook(quiet, 'stop', {});
+  for (const r of [off, quiet]) assert.ok(!existsSync(join(r, '.seal/.state/review.log')));
+});
+
+test('user-prompt: delivers findings once', () => {
+  const { root } = sealRepo();
+  mkdirSync(join(root, '.seal/.state'), { recursive: true });
+  appendInbox(root, [{ file: 'docs/guide.md', pass: 'consistency', findings: ['L1: wrong'] }, { file: 'docs/x.md', pass: 'consistency', error: 'boom' }]);
+  const c = ctx(hook(root, 'user-prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'hi' }));
+  assert.match(c, /L1: wrong/);
+  assert.match(c, /could not run \(boom\)/);
+  assert.equal(hook(root, 'user-prompt', {}).out, '');
+});
+
+test('hooks are silent and exit 0: no config, not a repo, broken config, inside a reviewer', () => {
+  const plain = tmpRepo().root;
+  assert.deepEqual([hook(plain, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(plain, 'a.md') } }).code, hook(plain, 'post-tool', {}).out], [0, '']);
+  const broken = sealRepo().root;
+  write(broken, '.seal/config.json', '{');
+  const b = hook(broken, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(broken, 'docs/guide.md') } });
+  assert.deepEqual([b.code, b.out], [0, '']);
+  const child = sealRepo().root;
+  const c = hook(child, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(child, 'docs/guide.md') } }, { REVIEW_SEAL_CHILD: '1' });
+  assert.equal(c.out, '');
+  const notJson = run(child, ['hook', 'post-tool'], { input: 'not json' });
+  assert.deepEqual([notJson.code, notJson.out], [0, '']);
+});
