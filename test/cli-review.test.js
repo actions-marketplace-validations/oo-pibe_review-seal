@@ -60,6 +60,20 @@ test('install-hook leaves foreign hooks and hook managers alone', () => {
   assert.ok(!existsSync(join(b, '.git/hooks/pre-commit')));
 });
 
+test('install-hook detects every lefthook config name', () => {
+  for (const name of ['lefthook.yml', 'lefthook.yaml', '.lefthook.yml', '.lefthook.yaml']) {
+    const { root } = sealRepo();
+    writeFileSync(join(root, name), 'pre-commit:\n');
+    assert.match(run(root, ['install-hook']).out, /lefthook/, name);
+    assert.ok(!existsSync(join(root, '.git/hooks/pre-commit')), name);
+  }
+});
+
+test('help lists install-hook --force', () => {
+  const { root } = sealRepo();
+  assert.match(run(root, ['--help']).out, /install-hook \[--force\]/);
+});
+
 test('autoReview "commit" reviews and stages the ledger inside the hook', () => {
   const { root, git } = sealRepo({ autoReview: 'commit' });
   run(root, ['install-hook']);
