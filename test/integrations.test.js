@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, chmodSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, chmodSync, existsSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -181,14 +181,20 @@ function dueRepo({ expired = true, prState = '' } = {}) {
   r.git('remote', 'add', 'origin', remote); r.git('push', '-qu', 'origin', 'main');
   const bin = mkdtempSync(join(tmpdir(), 'review-seal-gh-'));
   const calls = join(bin, 'calls');
+  // A stand-in for gh with a pull request state that "pr create" sets; a "create-fails" file makes the next create fail.
+  if (prState) writeFileSync(join(bin, 'state'), prState + '\n');
   writeFileSync(join(bin, 'gh'), `#!/bin/sh
 printf '%s\\n' "$*" >> "${calls}"
-if [ "$1 $2" = "pr view" ]; then [ -n "${prState}" ] && { echo "${prState}"; exit 0; }; echo "no pull requests found" >&2; exit 1; fi
+if [ "$1 $2" = "pr view" ]; then [ -s "${bin}/state" ] && { cat "${bin}/state"; exit 0; }; echo "no pull requests found" >&2; exit 1; fi
 for a in "$@"; do if [ "$prev" = "--body-file" ]; then cp "$a" "${calls}.body"; fi; prev="$a"; done
+if [ "$1 $2" = "pr create" ]; then
+  if [ -f "${bin}/create-fails" ]; then rm -f "${bin}/create-fails"; echo "HTTP 502" >&2; exit 1; fi
+  echo OPEN > "${bin}/state"
+fi
 `);
   chmodSync(join(bin, 'gh'), 0o755);
   const env = { PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: 't', ANTHROPIC_API_KEY: 'k' };
-  return { ...r, remote, calls, env };
+  return { ...r, remote, calls, env, bin };
 }
 
 test('action, mode "due": expired reviews are renewed on a branch and a pull request is opened', () => {
@@ -293,7 +299,7 @@ test('action, mode "due": reviews already on the scheduled branch are reused, no
   assert.equal(o.code, 0, o.err);
   assert.match(o.out, /already has these reviews/);
   assert.equal(remoteTip(r), tip, 'no new commit when nothing new was reviewed');
-  assert.equal(readFileSync(r.calls, 'utf8'), ghCalls);
+  assert.equal(readFileSync(r.calls, 'utf8').slice(ghCalls.length).trim(), 'pr view review-seal/scheduled --json state -q .state', 'the open pull request is left as it is');
 });
 
 test('action, mode "due": a merged scheduled branch left behind does not roll back newer reviews on main', () => {
@@ -413,4 +419,43 @@ test('action, mode "due": a merge at the tip of the scheduled branch is left alo
   const d = step(r.root, 'Re-review what is due', r.env);
   assert.equal(d.code, 0);
   assert.match(d.out, /^::warning::review-seal: review-seal\/scheduled has commits from people/m);
+});
+
+test('action, mode "due": a pull request that failed to open is opened on the next run', () => {
+  const r = dueRepo();
+  writeFileSync(join(r.bin, 'create-fails'), '');
+  assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+  assert.notEqual(step(r.root, 'Open or update the pull request', r.env).code, 0);
+  const tip = remoteTip(r);
+  r.git('checkout', '-q', 'main');
+  writeFileSync(r.calls, '');
+  assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+  const o = step(r.root, 'Open or update the pull request', r.env);
+  assert.equal(o.code, 0, o.err);
+  assert.match(o.out, /already has these reviews/);
+  assert.equal(remoteTip(r), tip);
+  assert.match(readFileSync(r.calls, 'utf8'), /^pr create --head review-seal\/scheduled --base main --title review-seal: scheduled re-review --body-file /m);
+  assert.match(readFileSync(r.calls + '.body', 'utf8'), /^The reviews on this branch were recorded by an earlier scheduled run/);
+});
+
+test('action, mode "due": a closed or merged scheduled pull request is not reopened', () => {
+  for (const state of ['CLOSED', 'MERGED']) {
+    for (const second of [false, true]) {
+      const r = dueRepo({ prState: state });
+      if (second) {
+        // The branch already carries these reviews, so this is the "already has these reviews" path.
+        rmSync(join(r.bin, 'state')); writeFileSync(join(r.bin, 'create-fails'), '');
+        assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+        step(r.root, 'Open or update the pull request', r.env);
+        writeFileSync(join(r.bin, 'state'), state + '\n');
+        r.git('checkout', '-q', 'main');
+      }
+      writeFileSync(r.calls, '');
+      assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+      const o = step(r.root, 'Open or update the pull request', r.env);
+      assert.equal(o.code, 0, o.err);
+      assert.match(o.out, /^::warning::review-seal: the scheduled pull request was closed; delete the review-seal\/scheduled branch to resume/m, `${state} ${second}`);
+      assert.doesNotMatch(readFileSync(r.calls, 'utf8'), /^pr (create|edit|reopen)/m, `${state} ${second}`);
+    }
+  }
 });

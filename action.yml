@@ -162,10 +162,42 @@ runs:
         STATUS="$(cat "$RUNNER_TEMP/review-seal-due.status" 2>/dev/null || echo 1)"
         LEASE="$(cat "$RUNNER_TEMP/review-seal-due.lease" 2>/dev/null || true)"
         LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
+        START="$(git symbolic-ref -q --short HEAD || true)"
+        BODY="$RUNNER_TEMP/review-seal-pr.md"
+        node -e '
+          const fs = require("fs");
+          let log = "";
+          try { log = fs.readFileSync(process.argv[1], "utf8"); } catch {}
+          const max = 60000;
+          const cut = log.length > max;
+          if (cut) log = log.slice(0, max);
+          const longest = Math.max(0, ...(log.match(/~+/g) || []).map((r) => r.length));
+          const fence = "~".repeat(Math.max(3, longest + 1));
+          const end = log.endsWith("\n") || !log ? "" : "\n";
+          process.stdout.write("Scheduled re-review of files that were stale or past their shelf life.\n\n" + fence + "\n" + log + end + fence + "\n" + (cut ? "\nlog truncated; see the workflow run\n" : ""));
+        ' "$RUNNER_TEMP/review-seal-due.log" > "$BODY"
+        # Makes sure review-seal/scheduled has an open pull request. "edit" also refreshes the body of an open one.
+        # A pull request someone closed (or merged, leaving the branch) is not reopened.
+        ensure_pr() {
+          STATE="$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)"
+          case "$STATE" in
+            OPEN) if [ "$1" = "edit" ]; then gh pr edit review-seal/scheduled --body-file "$BODY"; fi ;;
+            CLOSED|MERGED) echo "::warning::review-seal: the scheduled pull request was closed; delete the review-seal/scheduled branch to resume" ;;
+            *)
+              if [ -n "$START" ]; then
+                gh pr create --head review-seal/scheduled --base "$START" --title "review-seal: scheduled re-review" --body-file "$BODY"
+              else
+                gh pr create --head review-seal/scheduled --title "review-seal: scheduled re-review" --body-file "$BODY"
+              fi ;;
+          esac
+        }
         if [ -n "$(git status --porcelain -- "$LEDGER")" ] && [ -n "$LEASE" ] && git show "${LEASE}:${LEDGER}" 2>/dev/null | cmp -s - "$LEDGER"; then
           echo "review-seal: review-seal/scheduled already has these reviews."
+          # A previous run may have pushed the branch but failed to open its pull request.
+          { printf 'The reviews on this branch were recorded by an earlier scheduled run; the log below is from the latest one.\n\n'; cat "$BODY"; } > "$BODY.tmp"
+          mv "$BODY.tmp" "$BODY"
+          ensure_pr keep
         elif [ -n "$(git status --porcelain -- "$LEDGER")" ]; then
-          START="$(git symbolic-ref -q --short HEAD || true)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B review-seal/scheduled
@@ -173,26 +205,7 @@ runs:
           git commit -m "review-seal: scheduled re-review"
           # Refused if the branch moved since the review step looked at it.
           git push --force-with-lease="refs/heads/review-seal/scheduled:${LEASE}" origin HEAD:refs/heads/review-seal/scheduled
-          BODY="$RUNNER_TEMP/review-seal-pr.md"
-          node -e '
-            const fs = require("fs");
-            let log = "";
-            try { log = fs.readFileSync(process.argv[1], "utf8"); } catch {}
-            const max = 60000;
-            const cut = log.length > max;
-            if (cut) log = log.slice(0, max);
-            const longest = Math.max(0, ...(log.match(/~+/g) || []).map((r) => r.length));
-            const fence = "~".repeat(Math.max(3, longest + 1));
-            const end = log.endsWith("\n") || !log ? "" : "\n";
-            process.stdout.write("Scheduled re-review of files that were stale or past their shelf life.\n\n" + fence + "\n" + log + end + fence + "\n" + (cut ? "\nlog truncated; see the workflow run\n" : ""));
-          ' "$RUNNER_TEMP/review-seal-due.log" > "$BODY"
-          if [ "$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)" = "OPEN" ]; then
-            gh pr edit review-seal/scheduled --body-file "$BODY"
-          elif [ -n "$START" ]; then
-            gh pr create --head review-seal/scheduled --base "$START" --title "review-seal: scheduled re-review" --body-file "$BODY"
-          else
-            gh pr create --head review-seal/scheduled --title "review-seal: scheduled re-review" --body-file "$BODY"
-          fi
+          ensure_pr edit
         elif [ "$STATUS" = "0" ]; then
           echo "review-seal: nothing was due."
         fi
