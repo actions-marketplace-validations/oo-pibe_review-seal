@@ -57,11 +57,11 @@ function stepScript(name) {
 const ACTION_PATH = fileURLToPath(new URL('..', import.meta.url));
 // One runner temp dir per repo, shared by its steps as on a real runner.
 const runnerTemp = new Map();
-function step(root, name, env = {}) {
+function step(root, name, env = {}, cwd = root) {
   if (!runnerTemp.has(root)) runnerTemp.set(root, mkdtempSync(join(tmpdir(), 'review-seal-runner-')));
   // Composite bash steps run as: bash --noprofile --norc -eo pipefail {0}
   const r = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', stepScript(name)], {
-    cwd: root, encoding: 'utf8',
+    cwd, encoding: 'utf8',
     env: { ...cleanEnv(), GITHUB_ACTION_PATH: ACTION_PATH, RUNNER_TEMP: runnerTemp.get(root), REVIEW_SEAL_CLAUDE: FAKE_CLAUDE, ...env },
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
@@ -131,4 +131,18 @@ test('action, commit "false": the ledger is restored, so the check judges the br
     assert.equal(git('status', '--porcelain'), before);
     assert.equal(step(root, 'Check', { BASE: 'main' }).code, 1);
   }
+});
+
+test('action steps run from the repo root, even when the workspace is a subdirectory', () => {
+  const { root, git } = prRepo();
+  const remote = mkdtempSync(join(tmpdir(), 'review-seal-remote-'));
+  execFileSync('git', ['init', '-q', '--bare', remote], { env: cleanEnv() });
+  git('remote', 'add', 'origin', remote); git('push', '-qu', 'origin', 'pr');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD~1');
+  const sub = join(root, 'src');
+  assert.equal(step(root, 'Review changed files', { BASE: 'main' }, sub).code, 0);
+  const c = step(root, 'Commit the ledger', {}, sub);
+  assert.equal(c.code, 0, c.err);
+  assert.match(git('show', '--name-only', '--format=%s', 'HEAD'), /^review-seal: record independent reviews\n[\s\S]*\.seal\/ledger\.json/);
+  assert.equal(step(root, 'Check', { BASE: 'main' }, sub).code, 0);
 });

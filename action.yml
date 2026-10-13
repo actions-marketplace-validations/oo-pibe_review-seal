@@ -44,11 +44,14 @@ runs:
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         BASE: ${{ inputs.base }}
-      run: node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" 2>&1 | tee "$RUNNER_TEMP/review-seal-review.log" || true
+      run: |
+        cd "$(git rev-parse --show-toplevel)"
+        node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" 2>&1 | tee "$RUNNER_TEMP/review-seal-review.log" || true
     - name: Commit the ledger
       if: inputs.commit == 'true'
       shell: bash
       run: |
+        cd "$(git rev-parse --show-toplevel)"
         LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
         if [ -n "$(git status --porcelain -- "$LEDGER")" ]; then
           git symbolic-ref -q HEAD >/dev/null || { echo "::error::review-seal: check out the PR branch (actions/checkout with ref: the PR head branch) or set commit: false"; exit 1; }
@@ -62,6 +65,7 @@ runs:
       if: inputs.commit != 'true'
       shell: bash
       run: |
+        cd "$(git rev-parse --show-toplevel)"
         LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
         echo "review-seal: commit is false, so this run's reviews are not kept. They were:"
         cat "$RUNNER_TEMP/review-seal-review.log" 2>/dev/null || true
@@ -70,4 +74,6 @@ runs:
       shell: bash
       env:
         BASE: ${{ inputs.base }}
-      run: node "$GITHUB_ACTION_PATH/bin/review-seal.js" check --changed-since "origin/${BASE}"
+      run: |
+        cd "$(git rev-parse --show-toplevel)"
+        node "$GITHUB_ACTION_PATH/bin/review-seal.js" check --changed-since "origin/${BASE}"
