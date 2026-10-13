@@ -2,7 +2,7 @@
 
 Report a vulnerability through GitHub's private vulnerability reporting on this repository (Security → Report a vulnerability). Please do not open a public issue.
 
-What counts: anything that lets a hook or the reviewer write anything other than review-seal's own state (`.seal/`, the configured ledger, and the ledger's entry in the git index), run commands it should not, or leak file contents off the machine beyond the Claude session the user already runs.
+What counts: anything that lets a hook or the reviewer write anything other than review-seal's own state (`.seal/`, the configured ledger, and the ledger's entry in the git index), run commands it should not, or leak file contents off the machine beyond the Claude session the user already runs. That includes reading or writing outside the repository through a symlink committed into it: review-seal refuses to follow a symlink in any of its own paths.
 
 What does not: forging a seal. The ledger token detects hand edits; it is not a signature, and the README's ledger section says so.
 

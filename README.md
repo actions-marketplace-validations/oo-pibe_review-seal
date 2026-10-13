@@ -134,7 +134,7 @@ It updates the ledger in place. Commit it yourself.
 | `timeoutSeconds` | `300` | Time limit for one review, from 1 to 1800. |
 | `ledger` | `".seal/ledger.json"` | Where the ledger lives, inside the repository. |
 
-The `substantive` rules apply only to the commit hook (`check --staged`). Every other check treats any change as needing a review. Whitespace at the ends of lines, line endings and blank lines at the start or end of a file don't change its hash.
+The `substantive` rules apply only to the commit hook (`check --staged`). Every other check treats any change as needing a review. Whitespace at the ends of lines, line endings and blank lines at the start or end of a file don't change its hash. A file that is not valid UTF-8 is hashed byte for byte.
 
 ## Commands
 
@@ -154,7 +154,7 @@ The `substantive` rules apply only to the commit hook (`check --staged`). Every 
     review-seal hash <file>                 print a file's content hash
     review-seal ledger-path                 print the ledger's path from the config
 
-`--changed-since <ref>` takes the files changed between the merge base with `<ref>` and `HEAD`. `install-hook` refuses to write into a hooks directory outside the repository (a shared `core.hooksPath`) unless you pass `--force`. `seal --reviewer independent` accepts only a verdict produced for the current version of the file and checklist.
+`--changed-since <ref>` takes the files changed between the merge base with `<ref>` and `HEAD`. `check --staged` reads the config and checklists from the git index, so an edit to them that is not staged does not change what the commit is checked against. `install-hook` refuses to write into a hooks directory outside the repository (a shared `core.hooksPath`) unless you pass `--force`. `seal --reviewer independent` accepts only a verdict produced for the current version of the file and checklist.
 
 Exit codes:
 
@@ -247,6 +247,7 @@ Commit the ledger. It is the review history of every covered file, kept next to 
 ## Limits
 
 - Covered paths that are symlinks are skipped. They are never reviewed, and they never block a commit or a pull request check. `review-seal review <symlink>` exits 2 and says so.
+- review-seal never follows a symlink in its own paths: the config, the checklists, the ledger and `.seal/.state/`. If one of them goes through a symlink, commands exit 2 and say so, and the plugin hooks do nothing.
 - The edit hook skips gitignored files, and `list` and `review --all` only see files git tracks or would track.
 - The plugin spots a Bash command that names a covered path, and when Claude finishes it also looks at what changed in the working tree. A command that never names a covered path (a formatter script, say) is caught only if the same session touched a covered file or ran a command mentioning part of a coverage glob.
 - Once a session edits anything covered, the end-of-turn review also takes every other covered file with uncommitted changes whose review is out of date, including ones changed before the session started, up to `maxFilesPerRun` files a run.
@@ -255,6 +256,7 @@ Commit the ledger. It is the review history of every covered file, kept next to 
 - Findings sent to Claude are capped at 300 characters each, 20 per file and 8,000 characters per message, and framed as claims for Claude to check. Findings from a review you run by hand reach the next Claude Code session in that repository too.
 - The reviewer runs with `--safe-mode --restricted --strict-mcp-config`, read-only tools and deny rules for `.git` and common secret files. In one round of tests on Claude Code 2.1.251, reads of `.git` and a WebFetch to a host outside `fetchDomains` were denied when tried directly with these flags, and a repository `CLAUDE.md` telling the reviewer to answer "clean" did not change its verdict. Treat these as layered defences verified on that version. They are not guarantees. An older Claude Code that lacks these flags fails with a message asking you to update. See [SECURITY.md](SECURITY.md).
 - Reviews run on the working copy, so a file staged only in part can't be reviewed for that commit. Stage the whole file.
+- Git does not run the pre-commit hook during rebase, cherry-pick or am, so those can record versions nobody reviewed. Run review-seal check in CI as the backstop.
 - For `git commit <path>`, the hook stages the ledger into both indexes git uses during that commit. This is tested on git 2.50 and relies on long-stable git behaviour.
 - git 2.24 or later is needed (`--end-of-options`).
 - `review-by` dates, `independentFrom` and review dates are UTC days.
