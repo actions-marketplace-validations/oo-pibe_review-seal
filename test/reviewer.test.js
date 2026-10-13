@@ -114,3 +114,23 @@ test('extractVerdict handles is_error and array envelopes', () => {
   assert.equal(extractVerdict(JSON.stringify(arr), job).verdict, 'clean');
   assert.equal(extractVerdict(JSON.stringify([{ type: 'system' }]), job), null);
 });
+
+test('timeout kills the reviewer process, not just resolves', async () => {
+  const { root } = sealRepo();
+  const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'log');
+  Object.assign(process.env, { FAKE_CLAUDE_MODE: 'sleep', FAKE_CLAUDE_LOG: log });
+  try {
+    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 1 });
+    assert.match(r.error, /timed out/);
+    const { pid } = JSON.parse(readFileSync(log, 'utf8').trim().split('\n')[0]);
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  } finally { delete process.env.FAKE_CLAUDE_MODE; delete process.env.FAKE_CLAUDE_LOG; }
+});
+
+test('oversized reviewer output is cut off', async () => {
+  const { root } = sealRepo();
+  const big = join(mkdtempSync(join(tmpdir(), 'rs-big-')), 'claude');
+  (await import('node:fs')).writeFileSync(big, '#!/bin/sh\nyes | head -c 12000000\n', { mode: 0o755 });
+  const r = await runReviewer(job, { root, claude: big, timeoutSeconds: 20 });
+  assert.match(r.error, /output too large/);
+});
