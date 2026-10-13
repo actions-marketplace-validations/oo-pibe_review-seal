@@ -137,6 +137,14 @@ test('post-tool: a Bash command naming nothing like a covered path returns witho
 });
 
 
+test('post-tool: a Bash command that passes the pre-filter marks the session for a scan before listing the repo', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'review-seal-not-a-repo-'));
+  const b = { session_id: 'scan1', cwd: dir, tool_name: 'Bash', tool_input: { command: 'cd docs && sed -i x guide.md' } };
+  assert.throws(() => onPostTool(b, dir, CFG));
+  const s = JSON.parse(readFileSync(join(dir, '.seal/.state/session-scan1.json'), 'utf8'));
+  assert.equal(s.scan, true);
+});
+
 const waitFor = async (cond, ms = 5000) => { for (let t = 0; t < ms && !cond(); t += 100) await sleep(100); return cond(); };
 const committedRepo = (over) => {
   const r = sealRepo(over);
