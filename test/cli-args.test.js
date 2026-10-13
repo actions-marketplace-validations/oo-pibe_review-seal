@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sealRepo, tmpRepo, run } from './helpers.js';
+import { sealRepo, tmpRepo, run, write, BIN } from './helpers.js';
 
 test('paths outside the repository are refused', () => {
   const { root } = sealRepo();
@@ -87,4 +87,56 @@ test('install-hook accepts a hooks directory inside the work tree', () => {
   git('config', 'core.hooksPath', '.githooks');
   assert.equal(run(root, ['install-hook']).code, 0);
   assert.ok(existsSync(join(root, '.githooks/pre-commit')));
+});
+
+test('flags: --key=value works, unknown flags and empty values are usage errors, --help anywhere', () => {
+  const { root } = sealRepo();
+  assert.equal(run(root, ['seal', 'docs/guide.md', '--pass=consistency', '--reviewer=builder', '--verdict=clean']).code, 0);
+  let r = run(root, ['check', '--stagd']);
+  assert.equal(r.code, 2); assert.match(r.err, /unknown flag --stagd/);
+  r = run(root, ['list', '--all']);
+  assert.equal(r.code, 2); assert.match(r.err, /unknown flag --all/);
+  r = run(root, ['check', '--staged=yes']);
+  assert.equal(r.code, 2); assert.match(r.err, /--staged does not take a value/);
+  for (const args of [['check', '--changed-since', ''], ['check', '--changed-since='], ['review', '--changed-since', '']]) {
+    r = run(root, args);
+    assert.equal(r.code, 2, args.join(' ')); assert.match(r.err, /--changed-since needs a value/);
+  }
+  for (const args of [['seal', '--help'], ['check', '--staged', '--help'], ['review', 'docs/guide.md', '--help']]) {
+    r = run(root, args);
+    assert.equal(r.code, 0, args.join(' ')); assert.match(r.out, /^review-seal \d/);
+  }
+});
+
+test('a clean builder seal cannot carry findings', () => {
+  const { root } = sealRepo();
+  const r = run(root, ['seal', 'docs/guide.md', '--pass', 'consistency', '--reviewer', 'builder', '--verdict', 'clean', '--finding', 'L1: x']);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /--verdict clean takes no --finding/);
+});
+
+test('init recognises an existing .gitignore entry with CRLF line endings', () => {
+  const { root } = tmpRepo({ '.gitignore': 'node_modules/\r\n.seal/.state/\r\n' });
+  assert.equal(run(root, ['init']).code, 0);
+  assert.equal(readFileSync(join(root, '.gitignore'), 'utf8'), 'node_modules/\r\n.seal/.state/\r\n');
+});
+
+test('GitHub annotations escape their data and properties', () => {
+  const { root, git } = sealRepo();
+  write(root, 'docs/a,b:c.md', 'x\n');
+  assert.equal(run(root, ['seal', 'docs/a,b:c.md', '--pass', 'consistency', '--reviewer', 'builder', '--verdict', 'findings', '--finding', 'L1: 50% off\nnext\rend']).code, 0);
+  git('add', '-A');
+  const r = run(root, ['check', '--staged'], { env: { GITHUB_ACTIONS: 'true' } });
+  assert.match(r.out, /^::warning file=docs\/a%2Cb%3Ac\.md,title=review-seal consistency::L1: 50%25 off%0Anext%0Dend$/m);
+});
+
+test('the pre-commit hook falls back to the node that installed it', () => {
+  const { root } = sealRepo();
+  run(root, ['install-hook']);
+  const hook = readFileSync(join(root, '.git/hooks/pre-commit'), 'utf8');
+  const q = (s) => `'${s}'`;
+  const fallback = `if [ -x ${q(process.execPath)} ]; then exec ${q(process.execPath)} ${q(BIN)} check --staged; fi`;
+  assert.ok(hook.includes(fallback), hook);
+  assert.ok(hook.indexOf(fallback) < hook.indexOf('echo'));
+  assert.match(hook, /could not find node or review-seal/);
 });
