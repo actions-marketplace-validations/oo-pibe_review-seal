@@ -27,6 +27,7 @@ test('rejects bad config with a plain message', () => {
     [JSON.stringify({ ...ok, autoReview: 'always' }), /"autoReview"/],
     [JSON.stringify({ ...ok, independentFrom: 'soon' }), /"independentFrom"/],
     [JSON.stringify({ ...ok, substantive: { patterns: ['('] } }), /bad substantive pattern/],
+    [JSON.stringify({ ...ok, substantive: { patterns: ['x*'] } }), /pattern "x\*" matches empty text/],
   ];
   for (const [raw, msg] of bad) assert.throws(() => parseConfig(raw), (e) => e instanceof ConfigError && msg.test(e.message), raw);
 });

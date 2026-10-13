@@ -66,3 +66,18 @@ test('singular wording for one line', () => {
   assert.match(classifyChange(diff(['a'], ['b']), rule(['zzz'])).why, /small edit \(1 line\)/);
   assert.match(classifyChange(diff(['a'], ['b']), rule(['zzz'], 1)).why, /touches 1 line$/);
 });
+
+test('an edited claim sentence is substantive', () => {
+  const r = classifyChange(diff(['They are the only club to win it twice.'], ['They are the only club to win it five times.']), rule(['\\bonly\\b']));
+  assert.equal(r.substantive, true);
+});
+
+test('a deleted claim is trivial', () => {
+  assert.equal(classifyChange(diff(['They are the only club to win it twice. Bring a jacket.'], ['Bring a jacket.']), rule(['\\bonly\\b'])).substantive, false);
+});
+
+test('a claim moved verbatim to another line is trivial', () => {
+  const claim = 'They are the only club to win it twice.';
+  const r = classifyChange(diff([claim + ' The ground is near the river.'], ['The ground is near the river.', claim]), rule(['\\bonly\\b']));
+  assert.equal(r.substantive, false);
+});
