@@ -48,6 +48,29 @@ test('install-hook writes an executable pre-commit that blocks, then passes afte
   git('commit', '-qm', 'reviewed');
 });
 
+test('install-hook also guards merges: a clean merge of an unreviewed change is blocked', () => {
+  const { root, git } = sealRepo({ substantive: { lines: 8, patterns: ['\\bonly\\b'] } });
+  assert.match(run(root, ['install-hook']).out, /pre-merge-commit/);
+  assert.ok(statSync(join(root, '.git/hooks/pre-merge-commit')).mode & 0o100);
+  write(root, 'docs/guide.md', 'L1 a\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10 a\n');
+  run(root, ['review', 'docs/guide.md']);
+  git('add', '-A'); git('commit', '-qm', 'init');
+  git('switch', '-qc', 'feat');
+  write(root, 'docs/guide.md', 'L1 this is the only gate\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10 a\n');
+  git('commit', '-qam', 'feat', '--no-verify');
+  git('switch', '-q', 'main');
+  write(root, 'src/app.js', 'console.log(2);\n');
+  git('commit', '-qam', 'main');
+  assert.throws(() => git('merge', '-q', '--no-edit', 'feat'), /BLOCK\s+docs\/guide\.md/);
+  assert.throws(() => git('rev-parse', '-q', '--verify', 'HEAD^2')); // no merge commit was made
+});
+
+test('install-hook mentions pre-merge-commit to hook managers', () => {
+  const b = sealRepo().root;
+  mkdirSync(join(b, '.husky'));
+  assert.match(run(b, ['install-hook']).out, /pre-merge-commit/);
+});
+
 test('install-hook leaves foreign hooks and hook managers alone', () => {
   const { root } = sealRepo();
   mkdirSync(join(root, '.git/hooks'), { recursive: true });
