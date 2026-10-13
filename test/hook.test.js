@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { sealRepo, tmpRepo, write, run, FAKE_CLAUDE } from './helpers.js';
-import { touchedFiles } from '../lib/hook.js';
+import { touchedFiles, onPostTool } from '../lib/hook.js';
 import { appendInbox } from '../lib/review.js';
 
 const hook = (root, event, payload, env) => run(root, ['hook', event], { input: JSON.stringify({ session_id: 's1', cwd: root, ...payload }), env });
@@ -111,3 +111,26 @@ test('hooks are silent and exit 0: no config, not a repo, broken config, inside 
   const notJson = run(child, ['hook', 'post-tool'], { input: 'not json' });
   assert.deepEqual([notJson.code, notJson.out], [0, '']);
 });
+
+// A root that is not a git repository: listing its files would throw, so these prove the hook never listed.
+const NO_REPO = join(tmpdir(), 'review-seal-no-such-repo');
+const CFG = { passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**/*.md'] } }, autoReview: 'stop' };
+
+test('post-tool: tools that cannot edit files return at once, without listing the repo', () => {
+  for (const tool_name of ['Read', 'Grep', 'Glob', 'WebFetch']) {
+    assert.equal(onPostTool({ session_id: 's', cwd: NO_REPO, tool_name, tool_input: { file_path: join(NO_REPO, 'docs/guide.md') } }, NO_REPO, CFG), '');
+  }
+});
+
+test('post-tool: edit tools check only the edited path, without listing the repo', () => {
+  const p = (file_path) => ({ session_id: 's', cwd: NO_REPO, tool_name: 'Edit', tool_input: { file_path } });
+  assert.equal(onPostTool(p(join(NO_REPO, 'src/x.js')), NO_REPO, CFG), '');
+  assert.equal(onPostTool(p(join(NO_REPO, 'docs/missing.md')), NO_REPO, CFG), '');
+});
+
+test('post-tool: a Bash command naming nothing like a covered path returns without listing the repo', () => {
+  const b = (command) => ({ session_id: 's', cwd: NO_REPO, tool_name: 'Bash', tool_input: { command } });
+  assert.equal(onPostTool(b('ls -la && npm test'), NO_REPO, CFG), '');
+  assert.throws(() => onPostTool(b('cat docs/guide.md'), NO_REPO, CFG));
+});
+
