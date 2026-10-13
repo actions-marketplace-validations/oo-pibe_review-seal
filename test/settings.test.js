@@ -130,3 +130,56 @@ test('check --changed-since compares with the merge base', () => {
   assert.equal(c.code, 1);
   assert.equal(c.err.match(SETTINGS)[1], '.seal/config.json');
 });
+
+// Exemptions come from the base config: a path the new config names as its ledger or a checklist is not
+// exempt from "content" just because the change itself says so.
+test('check --staged blocks a new config that names a content file as its ledger or checklist', () => {
+  const tricks = [
+    { ledger: 'docs/secret.md', passes: { consistency: { rubric: RUBRIC, files: ['docs/guide.md'] } } },
+    { passes: { consistency: { rubric: RUBRIC, files: ['docs/guide.md'] }, x: { rubric: 'docs/secret.md', files: ['nothing/**'] } } },
+  ];
+  for (const cfg of tricks) {
+    const r = base();
+    write(r.root, 'docs/secret.md', 'Secret plan.\n');
+    run(r.root, ['review', 'docs/secret.md']);
+    r.git('add', '-A'); r.git('commit', '-qm', 'secret');
+    write(r.root, '.seal/config.json', JSON.stringify(cfg));
+    write(r.root, 'docs/secret.md', 'Totally unreviewed new claims.\n');
+    r.git('add', '-A');
+    const c = staged(r);
+    assert.equal(c.code, 1, JSON.stringify(cfg) + c.err);
+    assert.match(c.err, SETTINGS);
+    assert.match(c.err.match(SETTINGS)[1], /\.seal\/config\.json/);
+  }
+});
+
+test('check --changed-since blocks a branch whose new config names a content file as its ledger or checklist', () => {
+  const tricks = [
+    { ledger: 'docs/secret.md', passes: { consistency: { rubric: RUBRIC, files: ['docs/guide.md'] } } },
+    { passes: { consistency: { rubric: RUBRIC, files: ['docs/guide.md'] }, x: { rubric: 'docs/secret.md', files: ['nothing/**'] } } },
+  ];
+  for (const cfg of tricks) {
+    const r = base();
+    write(r.root, 'docs/secret.md', 'Secret plan.\n');
+    run(r.root, ['review', 'docs/secret.md']);
+    r.git('add', '-A'); r.git('commit', '-qm', 'secret');
+    r.git('checkout', '-qb', 'pr');
+    write(r.root, '.seal/config.json', JSON.stringify(cfg));
+    write(r.root, 'docs/secret.md', 'Totally unreviewed new claims.\n');
+    r.git('add', '-A'); r.git('commit', '-qm', 'sneaky', '--no-verify');
+    const c = run(r.root, ['check', '--changed-since', 'main']);
+    assert.equal(c.code, 1, JSON.stringify(cfg) + c.err);
+    assert.match(c.err, SETTINGS);
+  }
+});
+
+test('a checklist the base config already names outside .seal/ stays a settings path, not content', () => {
+  const r = sealRepo({ passes: { consistency: { rubric: 'checklists/c.md', files: ['docs/**/*.md'] } } });
+  write(r.root, 'checklists/c.md', 'Does the text contradict itself?\n');
+  run(r.root, ['review', 'docs/guide.md']);
+  r.git('add', '-A'); r.git('commit', '-qm', 'base');
+  write(r.root, 'checklists/c.md', 'Does the text contradict itself or other pages?\n');
+  r.git('add', '-A');
+  const c = staged(r);
+  assert.doesNotMatch(c.err, /review settings/);
+});
