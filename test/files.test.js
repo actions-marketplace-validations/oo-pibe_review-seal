@@ -81,3 +81,18 @@ test('coveredFiles excludes symlinks, directories and gitlinks', () => {
   git('add', '-A');
   assert.deepEqual(coveredFiles(root, loadConfig(root)), ['docs/guide.md']);
 });
+
+test('harness env is isolated and tmpRepo root is a realpath', async () => {
+  const { cleanEnv, tmpRepo } = await import('./helpers.js');
+  process.env.GIT_AUTHOR_NAME = '/nonexistent'; process.env.CLAUDECODE = '1'; process.env.FAKE_CLAUDE_MODE = 'fail'; process.env.REVIEW_SEAL_CHILD = '1';
+  try {
+    const e = cleanEnv();
+    assert.equal(e.GIT_AUTHOR_NAME, undefined); assert.equal(e.CLAUDECODE, undefined);
+    assert.equal(e.FAKE_CLAUDE_MODE, undefined); assert.equal(e.REVIEW_SEAL_CHILD, undefined);
+    assert.equal(e.TZ, 'UTC');
+    const { root } = tmpRepo();
+    assert.equal(repoRoot(root), root);
+  } finally {
+    for (const k of ['GIT_AUTHOR_NAME', 'CLAUDECODE', 'FAKE_CLAUDE_MODE', 'REVIEW_SEAL_CHILD']) delete process.env[k];
+  }
+});

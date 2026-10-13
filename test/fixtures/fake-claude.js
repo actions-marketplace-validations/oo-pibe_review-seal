@@ -4,6 +4,7 @@
 import { appendFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
+if (!args.includes('-p')) { process.stderr.write('fake-claude: missing -p\n'); process.exit(2); }
 const prompt = args[args.indexOf('-p') + 1] || '';
 const pick = (k) => (prompt.match(new RegExp(`"${k}":"([^"]*)"`)) || [])[1];
 const v = { file: pick('file'), pass: pick('pass'), contentHash: pick('contentHash'), rubricHash: pick('rubricHash') };

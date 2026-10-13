@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -8,14 +8,23 @@ export const BIN = fileURLToPath(new URL('../bin/review-seal.js', import.meta.ur
 export const FAKE_CLAUDE = fileURLToPath(new URL('./fixtures/fake-claude.js', import.meta.url));
 chmodSync(FAKE_CLAUDE, 0o755);
 
+export function cleanEnv() {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) {
+    if (k.startsWith('GIT_') || k.startsWith('CLAUDE') || k.startsWith('FAKE_CLAUDE_')) delete env[k];
+  }
+  delete env.REVIEW_SEAL_CHILD;
+  return { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', TZ: 'UTC' };
+}
+
 export function write(root, p, c) {
   mkdirSync(dirname(join(root, p)), { recursive: true });
   writeFileSync(join(root, p), c);
 }
 
 export function tmpRepo(files = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'review-seal-'));
-  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: 'pipe' });
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'review-seal-')));
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: 'pipe', env: cleanEnv() });
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
   git('config', 'user.name', 'test');
@@ -37,8 +46,8 @@ export function sealRepo(over = {}) {
 
 export function run(root, args, { env = {}, input } = {}) {
   const r = spawnSync(process.execPath, [BIN, ...args], {
-    cwd: root, encoding: 'utf8', input,
-    env: { ...process.env, REVIEW_SEAL_CLAUDE: FAKE_CLAUDE, REVIEW_SEAL_CHILD: '', ...env },
+    cwd: root, encoding: 'utf8', input, timeout: 30_000,
+    env: { ...cleanEnv(), REVIEW_SEAL_CLAUDE: FAKE_CLAUDE, ...env },
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
