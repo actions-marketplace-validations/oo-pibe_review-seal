@@ -2,23 +2,25 @@
 
 Prove each version of a file got an independent review.
 
-You name the files that need review and give each review a checklist. When Claude Code finishes a turn, a fresh reviewer that has never seen the conversation reads every covered file that changed and reports what it found. The result goes into `.seal/ledger.json`, tied to the exact text it read and the exact checklist it used. Change a word in either and that review stops counting. The git pre-commit hook refuses commits of covered files whose review is missing or out of date.
+A Claude Code plugin, git pre-commit hook and GitHub Action that run a fresh Claude reviewer on the files you name and block commits whose review is missing or out of date.
 
-**What it can't do.** It can't stop a forged review. Each ledger entry carries a token that detects hand edits. The token is a plain hash, so anyone can recompute it, and anyone can record a review with `review-seal seal --reviewer independent` and made-up evidence. Skipping a review becomes a deliberate act that shows up in git history. It also can't tell whether a review was any good. It records that one happened, on which version, against which checklist and by whom.
+You give each review a checklist. When Claude Code finishes a turn, a reviewer that has never seen the conversation reads every covered file that changed and reports what it found. The result goes into `.seal/ledger.json`, tied to the exact text it read and the exact checklist it used. Change a word in either and that review stops counting.
+
+**What it can't do.** It can't stop someone who sets out to forge a review: the ledger catches hand edits, but anyone can record a review with made-up evidence, and that shows up in git history. It also can't judge whether a review was any good. It records that one happened, on which version, against which checklist and by whom.
 
 ## Why I built it
 
 I run [Road to Kickoff](https://roadtokickoff.com), football travel guides. Agents draft and research, and nothing ships without review passes. review-seal is how I make sure those passes happen. Each rule in it closes a gap I found in that process.
 
-Two of the passes used to print a reminder and exit successfully whether or not anyone ran them. A Flamengo guide went out saying foreign visitors could not buy tickets online without a Brazilian tax number (CPF). That was false, and two sentences later the guide described uploading a passport instead. The passes now block, and each one is recorded against the version it read.
+Two of the passes printed a reminder and exited successfully whether or not anyone ran them, so nothing showed whether they had run. That gap let a Flamengo guide contradict itself on tickets: it said visitors needed a Brazilian tax number (CPF), then described uploading a passport. The passes now block, and each one is recorded against the version it read.
 
-The edit hook matched `Write|Edit`. Agents also change files through shell commands, and in auto mode they often prefer to: one turn edited files through a Python heredoc and the hook never fired. review-seal watches Bash commands too, and checks the working tree when Claude finishes.
+My old edit hook matched `Write|Edit`. Agents also change files through shell commands, and in auto mode they often prefer to: one turn edited files through a Python heredoc and the hook never fired. review-seal watches Bash commands too, and checks the working tree when Claude finishes.
 
-Checks recorded by whoever built a piece missed problems that a reader with no part in it found before publishing. Here the reviewer starts with no view of the conversation, and the ledger records whether each review was independent. Set `independentFrom` and the builder's own reviews stop counting from that date.
+Reviews by the person who built a piece missed problems that an outside reader then caught before publishing. Here the reviewer starts with no view of the conversation, and the ledger records whether each review was independent. Set `independentFrom` and the builder's own reviews stop counting from that date.
 
 ## Install
 
-Needs Node 20 or later, git 2.24 or later, and [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and signed in.
+Needs Node 20 or later, git 2.24 or later, and [Claude Code](https://code.claude.com/docs) installed and signed in.
 
     npm install -D review-seal
     npx review-seal init          # .seal/config.json, a starter checklist, an empty ledger
@@ -31,9 +33,11 @@ Then add the Claude Code plugin so reviews run on their own:
     /plugin marketplace add oo-pibe/review-seal
     /plugin install review-seal@review-seal
 
-Reviews use the `claude` command you already have, signed in as you. Each one is a short headless session that can only read (Read, Grep, Glob). A file is reviewed again only when it or its checklist changes, or when its review expires.
+Reviews use the `claude` command you already have, signed in as you. Each one is a short headless session that can only read (Read, Grep, Glob, plus web lookups if a pass turns them on). A file is reviewed again only when it or its checklist changes, or when its review expires. On the default Sonnet model each file review cost about 4 to 7 cents in our tests.
 
 If `install-hook` finds husky, lefthook or a `.pre-commit-config.yaml`, it prints what to add instead of writing `.git/hooks`. With husky or lefthook, run `review-seal check --staged` from your pre-commit hook. For pre-commit, see [pre-commit](#pre-commit) below.
+
+To try it without installing anything, see [example/README.md](example/README.md) (two minutes).
 
 ## A normal day
 
@@ -54,7 +58,7 @@ A page can go out of date without anyone touching it, when a price or a rule cha
 - Give one file a date with `review-by: 2026-12-01` in its front matter, for copy tied to a season or a deal. Once that day arrives, any review recorded before it is due again.
 - Let a fact-check pass look things up with `"tools": ["WebSearch", "WebFetch"]`. The reviewer then checks claims against current sources and ends each finding with its source. WebFetch also needs `"fetchDomains"`, the exact hostnames the reviewer may fetch from. It still can't edit anything.
 
-`review-seal review --due` re-reviews every covered file that is stale, never reviewed or past its shelf life. `review-seal check` with no arguments exits 1 when any covered file's review has expired, so it works as a freshness report.
+`review-seal review --due` re-reviews every covered file that is stale, never reviewed or past its shelf life. `review-seal check` with no arguments exits 1 when any covered file's review is missing, out of date or expired, so it works as a freshness report.
 
 At commit time, an expired review blocks only when the staged change to that file is substantive (see `substantive` below). A smaller edit gets a warning. Files you don't commit are never blocked by their own expiry.
 
@@ -136,7 +140,7 @@ The `substantive` rules apply only to the commit hook (`check --staged`). Every 
 
     review-seal init                        set up .seal/ in this repo
     review-seal review <files…> | --changed-since <ref>
-                                            run the reviewer on those files if they need it
+                                            run the independent reviewer on those files if they need it
                                             (never reviewed, changed since, or past their shelf life)
     review-seal review --all                every covered file that changed or was never reviewed; ignores shelf life
     review-seal review --due                like --all, and also renews reviews past their shelf life
@@ -236,7 +240,7 @@ Inputs:
 
 - `at` is the review date (UTC). `contentHash` and `rubricHash` identify the file and checklist versions it read.
 - `reviewer` is `independent` or `builder`. `via` is `agent` for the automatic reviewer and evidence-backed seals, `manual` for builder seals.
-- `token` is a hash over the file path, the pass name and every other field, `at` included. Edit any of them by hand and the entry stops counting until the file is reviewed again.
+- `token` is a hash over the file path, the pass name and every other field, `at` included. Edit any of them by hand and the entry stops counting until the file is reviewed again. The token is a plain hash anyone can recompute, so it detects edits, not forgery.
 
 Commit the ledger. It is the review history of every covered file, kept next to the files. Keys are sorted so diffs stay small.
 
@@ -245,11 +249,11 @@ Commit the ledger. It is the review history of every covered file, kept next to 
 - Covered paths that are symlinks are skipped. They are never reviewed, and they never block a commit or a pull request check. `review-seal review <symlink>` exits 2 and says so.
 - The edit hook skips gitignored files, and `list` and `review --all` only see files git tracks or would track.
 - The plugin spots a Bash command that names a covered path, and when Claude finishes it also looks at what changed in the working tree. A command that never names a covered path (a formatter script, say) is caught only if the same session touched a covered file or ran a command mentioning part of a coverage glob.
-- Once a session edits anything covered, the end-of-turn review takes every stale covered file in the working tree, including ones changed before the session started, up to `maxFilesPerRun` files a run. Each version is reviewed once.
-- An automatic review that fails waits 10 minutes before it is retried. After three failures on the same version it waits until the file changes. `review-seal review` run by hand always tries.
+- Once a session edits anything covered, the end-of-turn review also takes every other covered file with uncommitted changes whose review is out of date, including ones changed before the session started, up to `maxFilesPerRun` files a run.
+- An automatic review that fails waits 10 minutes before it is retried. After three failures on the same version it waits until the file changes. Failure records older than a week are cleared the next time any review runs in the repository. `review-seal review` run by hand always tries.
 - Each plugin hook has a 10-second timeout, fails silently and never blocks a session. In a very large repository the check after a Bash command may time out; the working-tree scan when Claude finishes still runs.
-- Findings sent to Claude are capped at 300 characters each, 20 per file and 8 KB per message, and framed as claims for Claude to check. Findings from a review you run by hand reach the next Claude Code session in that repository too.
-- The reviewer runs with `--safe-mode --restricted --strict-mcp-config`, read-only tools and deny rules for `.git` and common secret files. These held in direct probes on Claude Code 2.1.251: reads of `.git` were denied, WebFetch to a host outside `fetchDomains` was denied, and a repository `CLAUDE.md` telling the reviewer to answer "clean" did not change its verdict. Treat these as layered defences verified on that version. They are not guarantees. An older Claude Code that lacks these flags fails with a message asking you to update. See [SECURITY.md](SECURITY.md).
+- Findings sent to Claude are capped at 300 characters each, 20 per file and 8,000 characters per message, and framed as claims for Claude to check. Findings from a review you run by hand reach the next Claude Code session in that repository too.
+- The reviewer runs with `--safe-mode --restricted --strict-mcp-config`, read-only tools and deny rules for `.git` and common secret files. In one round of tests on Claude Code 2.1.251, reads of `.git` and a WebFetch to a host outside `fetchDomains` were denied when tried directly with these flags, and a repository `CLAUDE.md` telling the reviewer to answer "clean" did not change its verdict. Treat these as layered defences verified on that version. They are not guarantees. An older Claude Code that lacks these flags fails with a message asking you to update. See [SECURITY.md](SECURITY.md).
 - Reviews run on the working copy, so a file staged only in part can't be reviewed for that commit. Stage the whole file.
 - For `git commit <path>`, the hook stages the ledger into both indexes git uses during that commit. This is tested on git 2.50 and relies on long-stable git behaviour.
 - git 2.24 or later is needed (`--end-of-options`).

@@ -2,15 +2,15 @@
 
 Report a vulnerability through GitHub's private vulnerability reporting on this repository (Security → Report a vulnerability). Please do not open a public issue.
 
-What counts: anything that lets a hook or the reviewer write outside `.seal/`, run commands it should not, or leak file contents off the machine beyond the Claude session the user already runs.
+What counts: anything that lets a hook or the reviewer write anything other than review-seal's own state (`.seal/`, the configured ledger, and the ledger's entry in the git index), run commands it should not, or leak file contents off the machine beyond the Claude session the user already runs.
 
-What does not: forging a seal. The ledger token detects hand edits; it is not a signature, and the README says so.
+What does not: forging a seal. The ledger token detects hand edits; it is not a signature, and the README's ledger section says so.
 
 ## What the reviewer can reach
 
 The reviewer is a headless Claude Code session run with `--safe-mode --restricted --strict-mcp-config`.
 
-- Its file tools are read-only and confined to the repository.
+- Its tools are read-only (Read, Grep, Glob, plus web lookups a pass opts into) and it runs from the repository root with Claude Code's `--restricted` mode, which confines file tools to the working directory. Reads outside the repository were not separately tested.
 - Deny rules cover `.git` and common secret files (best effort).
 - Web tools are off unless a pass opts in. When one does, WebFetch is limited to the exact hostnames listed in that pass's `fetchDomains`.
 - Findings are scrubbed for common secret formats before they are stored.
@@ -18,3 +18,5 @@ The reviewer is a headless Claude Code session run with `--safe-mode --restricte
 These are layered defences, not guarantees. Do not list hosts where anyone can publish content in `fetchDomains`: a page the reviewer fetches is text an outsider wrote.
 
 Self-hosted runners whose workspace contains the runner temp directory are out of scope.
+
+WebSearch has no host limit; turn it on only for passes over files you would be comfortable having quoted in a search query.
