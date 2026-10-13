@@ -28,3 +28,11 @@ test('computeToken binds every field and sorts findings', () => {
   assert.notEqual(computeToken('docs/y.md', 'consistency', e), t);
   assert.notEqual(computeToken('docs/x.md', 'fact-check', e), t);
 });
+
+test('contentHash of bytes: valid UTF-8 hashes like its text, other bytes hash as they are', () => {
+  const text = '﻿Line one  \r\nLine two\n';
+  assert.equal(contentHash(Buffer.from(text, 'utf8')), contentHash(text));
+  // Latin-1 "café" and "cafè": both decode to U+FFFD as UTF-8 text, but they are different bytes.
+  assert.notEqual(contentHash(Buffer.from([0x63, 0x61, 0x66, 0xe9])), contentHash(Buffer.from([0x63, 0x61, 0x66, 0xe8])));
+  assert.notEqual(contentHash(Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x20, 0x0a])), contentHash(Buffer.from([0x63, 0x61, 0x66, 0xe9])));
+});

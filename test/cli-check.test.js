@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, symlinkSync } from 'node:fs';
+import { readFileSync, existsSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpRepo, sealRepo, write, run } from './helpers.js';
 
@@ -131,4 +131,17 @@ test('explicit check skips a covered symlink', () => {
   const r = run(root, ['check', 'docs/link.md']);
   assert.equal(r.code, 0);
   assert.match(r.err, /skipping docs\/link\.md: review-seal skips symlinks/);
+});
+
+test('a Latin-1 file whose bytes change needs a new review', () => {
+  const { root } = sealRepo();
+  writeFileSync(join(root, 'docs/latin.md'), Buffer.from('Caf\xe9 opens at noon.\n', 'latin1'));
+  assert.equal(run(root, ['review', 'docs/latin.md']).code, 0);
+  assert.equal(run(root, ['check', 'docs/latin.md']).code, 0);
+  const before = run(root, ['hash', 'docs/latin.md']).out;
+  writeFileSync(join(root, 'docs/latin.md'), Buffer.from('Caf\xe8 opens at noon.\n', 'latin1'));
+  assert.notEqual(run(root, ['hash', 'docs/latin.md']).out, before);
+  const r = run(root, ['check', 'docs/latin.md']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /docs\/latin\.md/);
 });

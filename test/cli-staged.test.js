@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, mkdtempSync, copyFileSync, chmodSync, symlinkSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, copyFileSync, chmodSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sealRepo, run, write } from './helpers.js';
@@ -172,4 +172,16 @@ test('the hook blocks a commit that replaces a covered symlink with an unreviewe
   write(root, 'docs/link.md', 'Visitors need nothing at all.\n');
   git('add', '-A');
   assert.throws(() => git('commit', '-qm', 'swap'), /docs\/link\.md/);
+});
+
+test('check --staged tells apart Latin-1 bytes that UTF-8 text would merge', () => {
+  const { root, git } = sealRepo();
+  writeFileSync(join(root, 'docs/latin.md'), Buffer.from('Caf\xe9 opens at noon.\n', 'latin1'));
+  assert.equal(run(root, ['review', 'docs/latin.md']).code, 0);
+  git('add', '-A'); git('commit', '-qm', 'base');
+  writeFileSync(join(root, 'docs/latin.md'), Buffer.from('Caf\xe8 opens at noon.\n', 'latin1'));
+  git('add', 'docs/latin.md');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /docs\/latin\.md/);
 });
