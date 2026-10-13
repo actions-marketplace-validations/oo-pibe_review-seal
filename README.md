@@ -41,7 +41,7 @@ To try it without installing anything, see [example/README.md](example/README.md
 
 ## A normal day
 
-1. Claude edits `docs/tickets.md`. The plugin tells it the review is now out of date. The first time a session touches a file in a pass, it also shows Claude that pass's checklist.
+1. Claude edits `docs/tickets.md`. The plugin tells it the review is now out of date. The first time a session touches a file in a pass, it also tells Claude which checklist that pass uses (the path only; the checklist's text never goes into the session).
 2. Claude finishes its turn. The reviewer starts in the background, and the session doesn't wait.
 3. The verdict lands in `.seal/ledger.json`. If there were findings, or a review could not run, Claude sees that when you send your next message.
 4. You commit. The hook checks every staged covered file against the ledger, using the ledger as staged. If the review ran but the ledger isn't staged, the plain git hook stages the reviews for the files in that commit.
