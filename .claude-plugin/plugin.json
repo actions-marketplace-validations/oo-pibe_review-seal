@@ -1,7 +1,7 @@
 {
   "name": "review-seal",
   "version": "0.1.0",
-  "description": "Runs an independent review of covered files when Claude finishes a turn, records it against the exact version, and blocks commits whose review is missing or stale.",
+  "description": "Claude Code plugin, pre-commit hook and GitHub Action: a fresh Claude reviews changed files against your checklist, and commits wait for a current review.",
   "author": { "name": "oo-pibe" },
   "license": "MIT"
 }

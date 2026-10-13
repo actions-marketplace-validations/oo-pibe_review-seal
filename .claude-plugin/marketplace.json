@@ -3,6 +3,6 @@
   "description": "Prove each version of a file got an independent review.",
   "owner": { "name": "oo-pibe" },
   "plugins": [
-    { "name": "review-seal", "source": "./", "description": "Prove each version of a file got an independent review." }
+    { "name": "review-seal", "source": "./", "description": "Claude Code plugin, pre-commit hook and GitHub Action: a fresh Claude reviews changed files against your checklist, and commits wait for a current review." }
   ]
 }

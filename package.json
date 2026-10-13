@@ -1,7 +1,7 @@
 {
   "name": "review-seal",
   "version": "0.1.0",
-  "description": "Prove each version of a file got an independent review. Git pre-commit gate plus a Claude Code plugin that runs the reviews for you.",
+  "description": "Claude Code plugin, pre-commit hook and GitHub Action: a fresh Claude reviews changed files against your checklist, and commits wait for a current review.",
   "type": "module",
   "bin": { "review-seal": "bin/review-seal.js" },
   "files": [
@@ -10,7 +10,7 @@
   ],
   "engines": { "node": ">=20" },
   "scripts": { "test": "node --test test/*.test.js" },
-  "keywords": ["claude-code", "claude-code-plugin", "review", "pre-commit", "git-hooks", "ai-agents", "audit"],
+  "keywords": ["claude-code", "claude-code-plugin", "claude", "review", "code-review", "pre-commit", "git-hooks", "github-action", "ai-agents", "audit"],
   "author": "oo-pibe",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/oo-pibe/review-seal.git" }
