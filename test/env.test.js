@@ -9,7 +9,7 @@ test('files tests pass even with inherited git env pointing at another repo', ()
   other.git('add', '-A');
   const base = { ...process.env };
   delete base.NODE_TEST_CONTEXT;
-  const r = spawnSync(process.execPath, ['--test', new URL('./files.test.js', import.meta.url).pathname], {
+  const r = spawnSync(process.execPath, ['--test', '--test-reporter=spec', new URL('./files.test.js', import.meta.url).pathname], {
     encoding: 'utf8',
     env: { ...base, GIT_INDEX_FILE: join(other.root, '.git', 'index'), GIT_DIR: join(other.root, '.git'), CLAUDECODE: '1' },
   });
