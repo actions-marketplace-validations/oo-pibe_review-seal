@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeEntry, validateEntry, loadLedger, saveLedger, LedgerError } from '../lib/ledger.js';
@@ -40,4 +40,35 @@ test('save sorts keys and ends with a newline; load handles missing and broken f
   assert.deepEqual(Object.keys(JSON.parse(raw)['z.md']), ['a', 'b']);
   writeFileSync(join(root, '.seal/ledger.json'), '{oops');
   assert.throws(() => loadLedger(root, cfg), LedgerError);
+});
+
+test('backdating a builder entry breaks the token', () => {
+  const e = makeEntry('f', 'p', { ...base, reviewer: 'builder' });
+  assert.match(validateEntry('f', 'p', { ...e, at: '2020-01-01' }).join(), /token mismatch/);
+});
+
+test('at must be a real calendar date', () => {
+  const e = makeEntry('f', 'p', { ...base, at: '2026-02-31' });
+  assert.match(validateEntry('f', 'p', e).join(), /malformed date/);
+});
+
+test('non-list findings is reported, not thrown', () => {
+  const e = { ...makeEntry('f', 'p', base), findings: 'oops' };
+  assert.match(validateEntry('f', 'p', e).join(), /findings must be a list/);
+  assert.doesNotMatch(validateEntry('f', 'p', e).join(), /token mismatch/);
+});
+
+test('loadLedger rejects wrong shapes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rs-led-'));
+  const cfg = { ledger: 'l.json' };
+  for (const raw of ['null', '[]', '"x"', '{"a.md": null}', '{"a.md": []}', '{"a.md": 3}']) {
+    writeFileSync(join(root, 'l.json'), raw);
+    assert.throws(() => loadLedger(root, cfg), (e) => e instanceof LedgerError && /must map each file to its passes/.test(e.message), raw);
+  }
+});
+
+test('saveLedger leaves no temp file behind', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rs-led-'));
+  saveLedger(root, { ledger: 'l.json' }, { 'a.md': { p: { x: 1 } } });
+  assert.deepEqual(readdirSync(root), ['l.json']);
 });

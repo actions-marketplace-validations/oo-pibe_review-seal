@@ -48,3 +48,42 @@ test('loadConfig: null without a config, error when a rubric is missing', () => 
   writeFileSync(join(root, 'f.md'), 'y');
   assert.equal(loadConfig(root).passes.consistency.rubric, 'r.md');
 });
+
+test('path safety: ledger and rubric must be relative, inside the repo', () => {
+  const withLedger = (ledger) => JSON.stringify({ ...ok, ledger });
+  const withRubric = (rubric) => JSON.stringify({ passes: { a: { rubric, files: ['x'] } } });
+  assert.throws(() => parseConfig(withLedger('')), /"ledger" must be a non-empty relative path/);
+  assert.throws(() => parseConfig(withLedger('/etc/l.json')), /"ledger" must be a non-empty relative path/);
+  assert.throws(() => parseConfig(withLedger('../l.json')), /"ledger" must be a non-empty relative path/);
+  assert.throws(() => parseConfig(withLedger('a/../../l.json')), /"ledger" must be a non-empty relative path/);
+  assert.throws(() => parseConfig(withRubric('/etc/passwd')), /pass "a": "rubric" must be a non-empty relative path/);
+  assert.throws(() => parseConfig(withRubric('../r.md')), /pass "a": "rubric" must be a non-empty relative path/);
+  assert.throws(() => parseConfig(withRubric(5)), /needs a "rubric"/);
+});
+
+test('loadConfig: rubric must be a regular file', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rs-cfg-'));
+  mkdirSync(join(root, '.seal'));
+  mkdirSync(join(root, 'rdir'));
+  writeFileSync(join(root, '.seal/config.json'), JSON.stringify({ passes: { a: { rubric: 'rdir', files: ['x'] } } }));
+  assert.throws(() => loadConfig(root), /rubric rdir is not a file/);
+});
+
+test('config types are checked', () => {
+  const t = (over, msg) => assert.throws(() => parseConfig(JSON.stringify({ ...ok, ...over })), (e) => e instanceof ConfigError && msg.test(e.message), JSON.stringify(over));
+  t({ maxFilesPerRun: 0 }, /"maxFilesPerRun" must be a whole number of 1 or more/);
+  t({ maxFilesPerRun: 1.5 }, /"maxFilesPerRun"/);
+  t({ timeoutSeconds: 0 }, /"timeoutSeconds" must be a number between 1 and 1800/);
+  t({ timeoutSeconds: 5000 }, /"timeoutSeconds"/);
+  t({ blockOnFindings: 'yes' }, /"blockOnFindings" must be true or false/);
+  t({ model: '--evil' }, /"model" must be a plain model name/);
+  t({ model: 'a b' }, /"model"/);
+  t({ model: 3 }, /"model"/);
+  t({ substantive: { lines: -1 } }, /"substantive.lines" must be a whole number of 0 or more/);
+  t({ substantive: { patterns: 'x' } }, /"substantive.patterns" must be a list of strings/);
+  t({ substantive: { patterns: [1] } }, /"substantive.patterns" must be a list of strings/);
+  t({ independentFrom: '2026-02-31' }, /"independentFrom"/);
+  assert.throws(() => parseConfig(JSON.stringify({ passes: [{ rubric: 'r', files: ['x'] }] })), /needs a "passes" object/);
+  assert.throws(() => parseConfig(JSON.stringify({ passes: { a: { rubric: 'r', files: ['  '] } } })), /non-empty "files"/);
+  assert.throws(() => parseConfig(JSON.stringify({ passes: { a: { rubric: 'r', files: [''] } } })), /non-empty "files"/);
+});
