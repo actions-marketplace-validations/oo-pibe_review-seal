@@ -2,6 +2,7 @@
 // Test double for `claude -p`. Reads the prompt, echoes the hashes it was given,
 // and answers according to FAKE_CLAUDE_MODE. Logs each call when FAKE_CLAUDE_LOG is set.
 import { appendFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
 if (!args.includes('-p')) { process.stderr.write('fake-claude: missing -p\n'); process.exit(2); }
@@ -12,7 +13,11 @@ const mode = process.env.FAKE_CLAUDE_MODE || 'clean';
 if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ ...v, args, pid: process.pid, claudecode: process.env.CLAUDECODE ?? null, projectDir: process.env.CLAUDE_PROJECT_DIR ?? null, child: process.env.REVIEW_SEAL_CHILD ?? null }) + '\n');
 
 if (mode === 'fail') { process.stderr.write('boom'); process.exit(1); }
-if (mode === 'sleep') { setTimeout(() => {}, 60_000); }
+if (mode === 'sleep-grandchild') {
+  const g = spawn('sh', ['-c', 'trap "" TERM; exec sleep 30'], { stdio: 'ignore' });
+  if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ gpid: g.pid }) + '\n');
+  setTimeout(() => {}, 60_000);
+} else if (mode === 'sleep') { setTimeout(() => {}, 60_000); }
 else {
   let body;
   if (mode === 'garbage') body = 'I looked and it seems fine.';

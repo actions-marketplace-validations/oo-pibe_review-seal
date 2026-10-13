@@ -134,3 +134,27 @@ test('oversized reviewer output is cut off', async () => {
   const r = await runReviewer(job, { root, claude: big, timeoutSeconds: 20 });
   assert.match(r.error, /output too large/);
 });
+
+test('timeout also kills a grandchild that ignores SIGTERM', async () => {
+  const { root } = sealRepo();
+  const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'log');
+  Object.assign(process.env, { FAKE_CLAUDE_MODE: 'sleep-grandchild', FAKE_CLAUDE_LOG: log });
+  try {
+    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 1 });
+    assert.match(r.error, /timed out/);
+    const { gpid } = JSON.parse(readFileSync(log, 'utf8').trim().split('\n').pop());
+    assert.ok(gpid);
+    await new Promise((res) => setTimeout(res, 200));
+    assert.throws(() => process.kill(gpid, 0), { code: 'ESRCH' });
+  } finally { delete process.env.FAKE_CLAUDE_MODE; delete process.env.FAKE_CLAUDE_LOG; }
+});
+
+test('a verdict for another file or version gets its own error', async () => {
+  const { root } = sealRepo();
+  process.env.FAKE_CLAUDE_MODE = 'stale';
+  try {
+    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /different file or version/);
+  } finally { delete process.env.FAKE_CLAUDE_MODE; }
+});
