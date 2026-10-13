@@ -10,6 +10,10 @@ test('versions agree across package.json, plugin.json and the CLI', async () => 
   assert.equal(j('.claude-plugin/plugin.json').version, VERSION);
 });
 
+test('the CLI takes its version from package.json, not a copy of its own', () => {
+  assert.doesNotMatch(readFileSync(new URL('../lib/cli.js', import.meta.url), 'utf8'), /VERSION = ['"]\d/);
+});
+
 test('hooks.json wires the three events to the CLI', () => {
   const h = j('hooks/hooks.json').hooks;
   assert.deepEqual(Object.keys(h).sort(), ['PostToolUse', 'Stop', 'UserPromptSubmit']);
