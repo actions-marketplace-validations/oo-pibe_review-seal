@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, chmodSync, existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -336,4 +336,56 @@ test('action: the mode input says which permissions due mode needs', () => {
   assert.match(desc, /contents: write/);
   assert.match(desc, /pull-requests: write/);
   assert.match(desc, /Allow GitHub Actions to create and approve pull requests/);
+});
+
+// A fresh fetch-depth 1 checkout of dueRepo's remote, as actions/checkout makes on every run by default.
+function shallowClone(r) {
+  const root = join(realpathSync(mkdtempSync(join(tmpdir(), 'review-seal-shallow-'))), 'c');
+  execFileSync('git', ['clone', '-q', '--depth', '1', '-b', 'main', `file://${r.remote}`, root], { env: cleanEnv() });
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: 'pipe', env: cleanEnv() });
+  git('config', 'commit.gpgsign', 'false');
+  assert.equal(git('rev-parse', '--is-shallow-repository').trim(), 'true');
+  return { ...r, root, git };
+}
+const remoteTip = (r) => execFileSync('git', ['--git-dir', r.remote, 'rev-parse', 'review-seal/scheduled'], { encoding: 'utf8', env: cleanEnv() }).trim();
+// A person's commit on main, so the scheduled branch's base falls out of the next shallow checkout.
+function advanceMain(r) {
+  write(r.root, 'notes.txt', `more ${Math.random()}\n`); r.git('add', 'notes.txt'); r.git('commit', '-qm', 'more'); r.git('push', '-q', 'origin', 'main');
+}
+
+test('action, mode "due": works in shallow checkouts, run after run', () => {
+  const r = dueRepo();
+  advanceMain(r);
+  const a = shallowClone(r);
+  assert.equal(step(a.root, 'Re-review what is due', a.env).code, 0);
+  const o1 = step(a.root, 'Open or update the pull request', a.env);
+  assert.equal(o1.code, 0, o1.err);
+  advanceMain(r);
+  const b = shallowClone(r);
+  const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
+  const d2 = step(b.root, 'Re-review what is due', { ...b.env, FAKE_CLAUDE_LOG: log });
+  assert.equal(d2.code, 0, d2.err);
+  assert.doesNotMatch(d2.out, /::warning::/);
+  assert.deepEqual(reviewerCalls(log), []);
+  assert.equal(step(b.root, 'Open or update the pull request', b.env).code, 0);
+  pushScheduled(r, 'person@example.com');
+  const c = shallowClone(r);
+  const d3 = step(c.root, 'Re-review what is due', c.env);
+  assert.equal(d3.code, 0);
+  assert.match(d3.out, /^::warning::review-seal: review-seal\/scheduled has commits from people; not overwriting\. Merge or close the pull request and delete the branch to resume\./m);
+});
+
+test('action, mode "due": a merge at the tip of the scheduled branch is left alone', () => {
+  const r = dueRepo();
+  const other = join(mkdtempSync(join(tmpdir(), 'review-seal-clone-')), 'c');
+  const g = (...a) => execFileSync('git', a, { cwd: other, encoding: 'utf8', stdio: 'pipe', env: cleanEnv() });
+  execFileSync('git', ['clone', '-q', '-b', 'main', r.remote, other], { env: cleanEnv() });
+  for (const [k, v] of [['user.name', 'bot'], ['user.email', BOT], ['commit.gpgsign', 'false']]) g('config', k, v);
+  g('checkout', '-qb', 'side'); write(other, 'docs/side.md', 'Side.\n'); g('add', '-A'); g('commit', '-qm', 'side');
+  g('checkout', '-q', 'main'); write(other, 'docs/main.md', 'Main.\n'); g('add', '-A'); g('commit', '-qm', 'main');
+  g('merge', '-q', '--no-ff', '-m', 'merge', 'side');
+  g('push', '-qf', 'origin', 'HEAD:refs/heads/review-seal/scheduled');
+  const d = step(r.root, 'Re-review what is due', r.env);
+  assert.equal(d.code, 0);
+  assert.match(d.out, /^::warning::review-seal: review-seal\/scheduled has commits from people/m);
 });

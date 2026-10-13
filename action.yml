@@ -65,6 +65,7 @@ runs:
       run: |
         cd "$(git rev-parse --show-toplevel)"
         # The reviewer can read files in the repository, so checkout's token is taken out of .git/config while it runs.
+        # git config --local does not follow includeIf; credential files included that way live outside the working directory.
         AUTH="$(git config --local --get-all http.https://github.com/.extraheader || true)"
         restore_auth() {
           if [ -n "$AUTH" ]; then
@@ -118,11 +119,13 @@ runs:
         rm -f "$RUNNER_TEMP/review-seal-due.skip" "$RUNNER_TEMP/review-seal-due.status"
         : > "$RUNNER_TEMP/review-seal-due.log"
         LEASE=""
-        if git fetch -q origin refs/heads/review-seal/scheduled 2>/dev/null; then
+        if git fetch -q --depth 1 origin refs/heads/review-seal/scheduled 2>/dev/null; then
           LEASE="$(git rev-parse FETCH_HEAD)"
-          PEOPLE="$(git log --format=%ae "HEAD..${LEASE}" | grep -vxF "$BOT" || true)"
-          if [ -n "$PEOPLE" ]; then
-            echo "::warning::review-seal: review-seal/scheduled has commits from people; not overwriting"
+          # Only the tip is checked, since a shallow checkout has no history to compare with. This action only ever
+          # pushes one plain commit by the bot, so any other tip (a person's commit, a merge) was put there by hand.
+          PARENTS="$(git cat-file -p "$LEASE" | grep -c '^parent ' || true)"
+          if [ "$(git log -1 --format=%ae "$LEASE")" != "$BOT" ] || [ "$PARENTS" -gt 1 ]; then
+            echo "::warning::review-seal: review-seal/scheduled has commits from people; not overwriting. Merge or close the pull request and delete the branch to resume."
             touch "$RUNNER_TEMP/review-seal-due.skip"
             exit 0
           fi
@@ -131,6 +134,7 @@ runs:
         fi
         printf '%s' "$LEASE" > "$RUNNER_TEMP/review-seal-due.lease"
         # The reviewer can read files in the repository, so checkout's token is taken out of .git/config while it runs.
+        # git config --local does not follow includeIf; credential files included that way live outside the working directory.
         AUTH="$(git config --local --get-all http.https://github.com/.extraheader || true)"
         restore_auth() {
           if [ -n "$AUTH" ]; then
