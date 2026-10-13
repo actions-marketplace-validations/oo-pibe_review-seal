@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, chmodSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sealRepo, tmpRepo, run, write, BIN } from './helpers.js';
+import { sealRepo, tmpRepo, run, write, BIN, cleanEnv } from './helpers.js';
 
 test('paths outside the repository are refused', () => {
   const { root } = sealRepo();
@@ -139,4 +140,26 @@ test('the pre-commit hook falls back to the node that installed it', () => {
   assert.ok(hook.includes(fallback), hook);
   assert.ok(hook.indexOf(fallback) < hook.indexOf('echo'));
   assert.match(hook, /could not find node or review-seal/);
+});
+
+test('the pre-commit hook skips env-node launchers when node is not on PATH', (t) => {
+  if (spawnSync('sh', ['-c', 'command -v node'], { env: { PATH: '/usr/bin:/bin' } }).status === 0) return t.skip('node is on the minimal PATH');
+  const { root, git } = sealRepo();
+  run(root, ['install-hook']);
+  write(root, 'node_modules/.bin/review-seal', '#!/usr/bin/env node\nprocess.exit(0);\n');
+  chmodSync(join(root, 'node_modules/.bin/review-seal'), 0o755);
+  git('add', 'docs/guide.md', '.seal');
+  const r = spawnSync('sh', [join(root, '.git/hooks/pre-commit')], { cwd: root, encoding: 'utf8', env: { ...cleanEnv(), PATH: '/usr/bin:/bin' } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /never reviewed/);
+});
+
+test('-- ends the options; unknown short flags are usage errors', () => {
+  const { root } = sealRepo();
+  let r = run(root, ['check', '-s']);
+  assert.equal(r.code, 2); assert.match(r.err, /unknown flag -s/);
+  r = run(root, ['review', '--', '--x.md']);
+  assert.equal(r.code, 2); assert.match(r.err, /--x\.md does not exist/);
+  r = run(root, ['review', '--', '--help']);
+  assert.equal(r.code, 2); assert.match(r.err, /--help does not exist/);
 });
