@@ -1,0 +1,8 @@
+{
+  "name": "review-seal",
+  "description": "Prove each version of a file got an independent review.",
+  "owner": { "name": "oo-pibe" },
+  "plugins": [
+    { "name": "review-seal", "source": "./", "description": "Prove each version of a file got an independent review." }
+  ]
+}
