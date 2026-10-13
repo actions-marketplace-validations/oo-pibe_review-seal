@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, symlinkSync, realpathSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, symlinkSync, realpathSync, unlinkSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -76,6 +76,7 @@ test('stop: starts a background review of files touched this session', async () 
   assert.equal(r.code, 0);
   for (let i = 0; i < 50 && !existsSync(join(root, '.seal/ledger.json')); i++) await sleep(100);
   for (let i = 0; i < 50 && existsSync(join(root, '.seal/.state/review.lock')); i++) await sleep(100);
+  assert.ok(existsSync(join(root, '.seal/ledger.json')), 'the background review wrote no ledger');
   const led = JSON.parse(readFileSync(join(root, '.seal/ledger.json'), 'utf8'));
   assert.equal(led['docs/guide.md'].consistency.reviewer, 'independent');
 });
@@ -265,4 +266,26 @@ test('post-tool: the checklist briefing is capped at 4000 characters', () => {
   assert.doesNotMatch(c, /END-MARKER/);
   assert.ok(c.length < 4500, `briefing is ${c.length} characters`);
   assert.match(c, /\.seal\/rubrics\/consistency\.md/);
+});
+
+test('stop: session files older than 7 days are deleted', () => {
+  const { root } = sealRepo();
+  const dir = join(root, '.seal/.state');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'session-old.json'), '{}');
+  writeFileSync(join(dir, 'session-recent.json'), '{}');
+  const old = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  utimesSync(join(dir, 'session-old.json'), old, old);
+  hook(root, 'stop', {});
+  assert.ok(!existsSync(join(dir, 'session-old.json')));
+  assert.ok(existsSync(join(dir, 'session-recent.json')));
+});
+
+test('user-prompt: results go to the session whose turn started the review', async () => {
+  const { root } = sealRepo();
+  hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } });
+  hook(root, 'stop', {}, { FAKE_CLAUDE_MODE: 'fail' });
+  await waitFor(() => existsSync(join(root, '.seal/.state/inbox.jsonl')) && !existsSync(join(root, '.seal/.state/review.lock')));
+  assert.equal(hook(root, 'user-prompt', { session_id: 'other' }).out, '');
+  assert.match(ctx(hook(root, 'user-prompt', { session_id: 's1' })), /docs\/guide\.md \[consistency\]: the review could not run/);
 });

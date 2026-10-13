@@ -251,3 +251,15 @@ test('backoff: a success clears the record; an explicit review (no backoff) alwa
   await reviewFiles(root, cfg, ['docs/guide.md'], { run: fake() });
   assert.deepEqual(JSON.parse(readFileSync(failuresPath(root), 'utf8')), {});
 });
+
+test('inbox: items carry their session; a drain takes its own, untagged and day-old items and leaves the rest', async () => {
+  const { root } = sealRepo();
+  await reviewFiles(root, loadConfig(root), ['docs/guide.md'], { run: async () => ({ ok: false, error: 'boom' }), session: 'A' });
+  const day = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
+  appendInbox(root, [{ file: 'untagged' }, { file: 'old-B', session: 'B', at: day }, { file: 'fresh-B', session: 'B', at: new Date().toISOString() }]);
+  const a = drainInbox(root, 'A');
+  assert.deepEqual(a.map((i) => i.file).sort(), ['docs/guide.md', 'old-B', 'untagged']);
+  assert.equal(a.find((i) => i.file === 'docs/guide.md').session, 'A');
+  assert.deepEqual(drainInbox(root, 'A'), []);
+  assert.deepEqual(drainInbox(root, 'B').map((i) => i.file), ['fresh-B']);
+});

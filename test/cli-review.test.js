@@ -67,3 +67,11 @@ test('autoReview "commit" reviews and stages the ledger inside the hook', () => 
   git('commit', '-qm', 'auto-reviewed');
   assert.match(git('show', '--stat', 'HEAD'), /\.seal\/ledger\.json/);
 });
+
+test('review --auto --session tags what it leaves in the inbox', () => {
+  const { root } = sealRepo();
+  const r = run(root, ['review', '--auto', '--session', 'abc', 'docs/guide.md'], { env: { FAKE_CLAUDE_MODE: 'fail' } });
+  assert.equal(r.code, 1);
+  const items = readFileSync(join(root, '.seal/.state/inbox.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(items.map((i) => i.session), ['abc']);
+});
