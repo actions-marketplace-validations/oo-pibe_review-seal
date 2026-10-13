@@ -46,7 +46,7 @@ test('bad seal invocations are usage errors', () => {
   assert.match(s('--pass', 'nope', '--reviewer', 'builder', '--verdict', 'clean').err, /no pass named "nope"/);
   assert.match(s('--pass', 'consistency', '--reviewer', 'me', '--verdict', 'clean').err, /--reviewer must be/);
   assert.match(s('--pass', 'consistency', '--reviewer', 'builder', '--verdict', 'findings').err, /at least one --finding/);
-  assert.match(run(root, ['seal', 'src/app.js', '--pass', 'consistency', '--reviewer', 'builder', '--verdict', 'clean']).err, /its passes: none/);
+  assert.match(run(root, ['seal', 'src/app.js', '--pass', 'consistency', '--reviewer', 'builder', '--verdict', 'clean']).err, /src\/app\.js is not covered by any pass/);
 });
 
 test('seal refuses a symlink', () => {
