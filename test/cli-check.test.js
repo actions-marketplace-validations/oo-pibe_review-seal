@@ -145,3 +145,13 @@ test('a Latin-1 file whose bytes change needs a new review', () => {
   assert.equal(r.code, 1);
   assert.match(r.err, /docs\/latin\.md/);
 });
+
+test('check outside a commit does not talk about a commit', () => {
+  const { root, git } = sealRepo();
+  const r = run(root, ['check']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /these files need a fresh independent review:\n/);
+  assert.doesNotMatch(r.err, /before this commit/);
+  git('add', 'docs/guide.md');
+  assert.match(run(root, ['check', '--staged']).err, /these files need a fresh independent review before this commit:\n/);
+});
