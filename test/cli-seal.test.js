@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { sealRepo, write, run } from './helpers.js';
 
@@ -47,4 +47,12 @@ test('bad seal invocations are usage errors', () => {
   assert.match(s('--pass', 'consistency', '--reviewer', 'me', '--verdict', 'clean').err, /--reviewer must be/);
   assert.match(s('--pass', 'consistency', '--reviewer', 'builder', '--verdict', 'findings').err, /at least one --finding/);
   assert.match(run(root, ['seal', 'src/app.js', '--pass', 'consistency', '--reviewer', 'builder', '--verdict', 'clean']).err, /its passes: none/);
+});
+
+test('seal refuses a symlink', () => {
+  const { root } = sealRepo();
+  symlinkSync('guide.md', join(root, 'docs/link.md'));
+  const r = run(root, ['seal', 'docs/link.md', '--pass', 'consistency', '--reviewer', 'builder']);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /docs\/link\.md is a symlink; review-seal skips symlinks/);
 });

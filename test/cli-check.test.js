@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpRepo, sealRepo, write, run } from './helpers.js';
 
@@ -122,4 +122,13 @@ test('ledger-path prints the configured ledger path; exit 2 without a config', (
   assert.equal(none.code, 2);
   assert.match(none.err, /run "review-seal init" first/);
   assert.equal(run(sealRepo().root, ['ledger-path', '--staged']).code, 2);
+});
+
+test('explicit check skips a covered symlink', () => {
+  const { root } = sealRepo();
+  symlinkSync('guide.md', join(root, 'docs/link.md'));
+  run(root, ['seal', 'docs/guide.md', '--pass', 'consistency', '--reviewer', 'builder']);
+  const r = run(root, ['check', 'docs/link.md']);
+  assert.equal(r.code, 0);
+  assert.match(r.err, /skipping docs\/link\.md: review-seal skips symlinks/);
 });
