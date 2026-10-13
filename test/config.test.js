@@ -87,3 +87,17 @@ test('config types are checked', () => {
   assert.throws(() => parseConfig(JSON.stringify({ passes: { a: { rubric: 'r', files: ['  '] } } })), /non-empty "files"/);
   assert.throws(() => parseConfig(JSON.stringify({ passes: { a: { rubric: 'r', files: [''] } } })), /non-empty "files"/);
 });
+
+test('edge cases: model forms, sub-second timeout, substantive type, ledger dir path', () => {
+  const run = (over) => parseConfig(JSON.stringify({ ...ok, ...over }));
+  for (const m of ['claude-sonnet-4-5@20250929', 'sonnet[1m]', 'arn:aws:bedrock:us-east-1:1:inference-profile/x.y']) assert.equal(run({ model: m }).model, m);
+  assert.throws(() => run({ model: '-x@1' }), /"model" must be a plain model name/);
+  assert.throws(() => run({ model: 'a b' }), /"model"/);
+  assert.throws(() => run({ timeoutSeconds: 0.5 }), /"timeoutSeconds" must be a number between 1 and 1800/);
+  assert.equal(run({ timeoutSeconds: 1 }).timeoutSeconds, 1);
+  assert.throws(() => run({ substantive: 'x' }), /"substantive" must be an object/);
+  assert.throws(() => run({ substantive: [] }), /"substantive" must be an object/);
+  assert.throws(() => run({ substantive: null }), /"substantive" must be an object/);
+  assert.throws(() => run({ ledger: '.seal/' }), /"ledger" must be a non-empty relative path/);
+  assert.throws(() => run({ ledger: '.seal\\' }), /"ledger" must be a non-empty relative path/);
+});
