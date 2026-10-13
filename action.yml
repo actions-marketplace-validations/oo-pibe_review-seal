@@ -129,8 +129,12 @@ runs:
             touch "$RUNNER_TEMP/review-seal-due.skip"
             exit 0
           fi
-          # Reviews the scheduled branch already renewed are kept, so they are not paid for twice.
-          git checkout "$LEASE" -- "$LEDGER" 2>/dev/null || true
+          # Reviews the scheduled branch already renewed are reused, so they are not paid for twice. Each entry is
+          # taken only if it still fits the current file and checklist and is newer, so nothing on main is rolled back.
+          if git show "${LEASE}:${LEDGER}" > "$RUNNER_TEMP/scheduled-ledger.json" 2>/dev/null; then
+            node "$GITHUB_ACTION_PATH/bin/review-seal.js" merge-ledger "$RUNNER_TEMP/scheduled-ledger.json" \
+              || echo "::warning::review-seal: could not reuse the reviews on review-seal/scheduled; reviewing again"
+          fi
         fi
         printf '%s' "$LEASE" > "$RUNNER_TEMP/review-seal-due.lease"
         # The reviewer can read files in the repository, so checkout's token is taken out of .git/config while it runs.
@@ -158,7 +162,9 @@ runs:
         STATUS="$(cat "$RUNNER_TEMP/review-seal-due.status" 2>/dev/null || echo 1)"
         LEASE="$(cat "$RUNNER_TEMP/review-seal-due.lease" 2>/dev/null || true)"
         LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
-        if [ -n "$(git status --porcelain -- "$LEDGER")" ]; then
+        if [ -n "$(git status --porcelain -- "$LEDGER")" ] && [ -n "$LEASE" ] && git show "${LEASE}:${LEDGER}" 2>/dev/null | cmp -s - "$LEDGER"; then
+          echo "review-seal: review-seal/scheduled already has these reviews."
+        elif [ -n "$(git status --porcelain -- "$LEDGER")" ]; then
           START="$(git symbolic-ref -q --short HEAD || true)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

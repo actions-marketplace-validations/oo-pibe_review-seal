@@ -262,6 +262,7 @@ function pushScheduled(r, email) {
   g('push', '-qf', 'origin', 'HEAD:refs/heads/review-seal/scheduled');
   return g('rev-parse', 'HEAD');
 }
+const remoteTip = (r) => execFileSync('git', ['--git-dir', r.remote, 'rev-parse', 'review-seal/scheduled'], { encoding: 'utf8', env: cleanEnv() }).trim();
 const BOT = '41898282+github-actions[bot]@users.noreply.github.com';
 
 test('action, mode "due": a scheduled branch with commits from people is left alone', () => {
@@ -285,10 +286,35 @@ test('action, mode "due": reviews already on the scheduled branch are reused, no
   const d = step(r.root, 'Re-review what is due', { ...r.env, FAKE_CLAUDE_LOG: log });
   assert.equal(d.code, 0, d.err);
   assert.deepEqual(reviewerCalls(log), []);
+  assert.equal(run(r.root, ['check']).code, 0);
+  const tip = remoteTip(r);
+  const ghCalls = readFileSync(r.calls, 'utf8');
   const o = step(r.root, 'Open or update the pull request', r.env);
   assert.equal(o.code, 0, o.err);
-  assert.equal(execFileSync('git', ['--git-dir', r.remote, 'rev-parse', 'review-seal/scheduled'], { encoding: 'utf8', env: cleanEnv() }), r.git('rev-parse', 'HEAD'));
-  assert.equal(run(r.root, ['check']).code, 0);
+  assert.match(o.out, /already has these reviews/);
+  assert.equal(remoteTip(r), tip, 'no new commit when nothing new was reviewed');
+  assert.equal(readFileSync(r.calls, 'utf8'), ghCalls);
+});
+
+test('action, mode "due": a merged scheduled branch left behind does not roll back newer reviews on main', () => {
+  const r = dueRepo();
+  assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+  assert.equal(step(r.root, 'Open or update the pull request', r.env).code, 0);
+  r.git('checkout', '-q', 'main');
+  r.git('merge', '-q', '--ff-only', 'review-seal/scheduled');
+  write(r.root, 'docs/guide.md', 'A newer claim.\n');
+  assert.equal(run(r.root, ['review', 'docs/guide.md'], { env: { FAKE_CLAUDE_MODE: 'findings' } }).code, 0);
+  r.git('add', '-A'); r.git('commit', '-qm', 'newer'); r.git('push', '-q', 'origin', 'main');
+  const ledgerOnMain = r.git('show', 'HEAD:.seal/ledger.json');
+  const tip = remoteTip(r);
+  const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
+  assert.equal(step(r.root, 'Re-review what is due', { ...r.env, FAKE_CLAUDE_LOG: log }).code, 0);
+  assert.deepEqual(reviewerCalls(log), []);
+  assert.equal(readFileSync(join(r.root, '.seal/ledger.json'), 'utf8'), ledgerOnMain);
+  const o = step(r.root, 'Open or update the pull request', r.env);
+  assert.equal(o.code, 0, o.err);
+  assert.match(o.out, /nothing was due/);
+  assert.equal(remoteTip(r), tip);
 });
 
 test('action, mode "due": a push to the scheduled branch during the run is not overwritten', () => {
@@ -347,7 +373,6 @@ function shallowClone(r) {
   assert.equal(git('rev-parse', '--is-shallow-repository').trim(), 'true');
   return { ...r, root, git };
 }
-const remoteTip = (r) => execFileSync('git', ['--git-dir', r.remote, 'rev-parse', 'review-seal/scheduled'], { encoding: 'utf8', env: cleanEnv() }).trim();
 // A person's commit on main, so the scheduled branch's base falls out of the next shallow checkout.
 function advanceMain(r) {
   write(r.root, 'notes.txt', `more ${Math.random()}\n`); r.git('add', 'notes.txt'); r.git('commit', '-qm', 'more'); r.git('push', '-q', 'origin', 'main');
