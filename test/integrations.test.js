@@ -152,7 +152,7 @@ test('action: file names in failure annotations are escaped as properties', () =
   write(r.root, 'docs/a,b:c%.md', 'x\n');
   r.git('add', '-A'); r.git('commit', '-qm', 'odd name');
   const rv = step(r.root, 'Review changed files', { BASE: 'main', GITHUB_ACTIONS: 'true', FAKE_CLAUDE_MODE: 'garbage' });
-  assert.match(rv.out, /^::error file=docs\/a%2Cb%3Ac%25\.md::review-seal: could not read a verdict from the reviewer output$/m);
+  assert.match(rv.out, /^::error file=docs\/a%2Cb%3Ac%25\.md::review-seal: could not read a verdict from the reviewer output; raw output saved to \.seal\/\.state\/last-reviewer-output\.txt$/m);
 });
 
 test('action, commit "false": the ledger is restored, so the check judges the branch as it is', () => {
@@ -309,9 +309,11 @@ const BOT = '41898282+github-actions[bot]@users.noreply.github.com';
 test('action, mode "due": a scheduled branch with commits from people is left alone', () => {
   const r = dueRepo();
   const before = pushScheduled(r, 'person@example.com');
-  const d = step(r.root, 'Re-review what is due', r.env);
+  const summary = join(mkdtempSync(join(tmpdir(), 'rs-summary-')), 'summary.md');
+  const d = step(r.root, 'Re-review what is due', { ...r.env, GITHUB_STEP_SUMMARY: summary });
   assert.equal(d.code, 0);
   assert.match(d.out, /^::warning::review-seal: review-seal\/scheduled has commits from people; not overwriting/m);
+  assert.match(readFileSync(summary, 'utf8'), /review-seal: nothing was reviewed\. review-seal\/scheduled has commits from people/);
   const o = step(r.root, 'Open or update the pull request', r.env);
   assert.equal(o.code, 0, o.err);
   assert.equal(execFileSync('git', ['--git-dir', r.remote, 'rev-parse', 'review-seal/scheduled'], { encoding: 'utf8', env: cleanEnv() }), before);
@@ -516,9 +518,11 @@ test('action, mode "due": a closed scheduled pull request stops the run without 
     const tip = second ? remoteTip(r) : null;
     writeFileSync(r.calls, '');
     assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
-    const o = step(r.root, 'Open or update the pull request', r.env);
+    const summary = join(mkdtempSync(join(tmpdir(), 'rs-summary-')), 'summary.md');
+    const o = step(r.root, 'Open or update the pull request', { ...r.env, GITHUB_STEP_SUMMARY: summary });
     assert.equal(o.code, 0, o.err);
     assert.match(o.out, /^::warning::review-seal: the scheduled pull request was closed; delete the review-seal\/scheduled branch to resume/m);
+    assert.match(readFileSync(summary, 'utf8'), /review-seal: the scheduled pull request was closed, so these reviews were not kept/);
     assert.equal(readFileSync(r.calls, 'utf8').trim(), 'pr view review-seal/scheduled --json state -q .state');
     if (second) assert.equal(remoteTip(r), tip);
     else assert.throws(() => remoteTip(r));

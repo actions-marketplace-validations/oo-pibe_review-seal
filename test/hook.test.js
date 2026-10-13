@@ -50,14 +50,14 @@ test('post-tool: fires when the payload uses an alias of the repo path', (t) => 
   const alias = aliasOf(root);
   if (!alias) return t.skip('cannot make a symlink alias here');
   const r = hook(root, 'post-tool', { cwd: alias, tool_name: 'Edit', tool_input: { file_path: join(alias, 'docs/guide.md') } });
-  assert.match(ctx(r), /docs\/guide\.md \[consistency\]: review is now out of date/);
+  assert.match(ctx(r), /docs\/guide\.md \[consistency\]: has no review yet/);
 });
 
 test('post-tool: says the review is stale and names the checklist once per session', () => {
   const { root } = sealRepo();
   const p = { hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } };
   const first = ctx(hook(root, 'post-tool', p));
-  assert.match(first, /docs\/guide\.md \[consistency\]: review is now out of date/);
+  assert.match(first, /docs\/guide\.md \[consistency\]: has no review yet/);
   assert.match(first, /The "consistency" reviewer will check docs\/guide\.md against \.seal\/rubrics\/consistency\.md\./);
   const second = ctx(hook(root, 'post-tool', p));
   assert.doesNotMatch(second, /will check/);
@@ -66,7 +66,7 @@ test('post-tool: says the review is stale and names the checklist once per sessi
 test('post-tool after a heredoc edit through Bash still fires', () => {
   const { root } = sealRepo();
   const r = hook(root, 'post-tool', { tool_name: 'Bash', tool_input: { command: "cat > docs/guide.md <<'EOF'\nnew\nEOF" } });
-  assert.match(ctx(r), /out of date/);
+  assert.match(ctx(r), /has no review yet/);
 });
 
 test('stop: starts a background review of files touched this session', async () => {
@@ -210,7 +210,7 @@ test('stop: reviews a covered file changed by a Bash command that names it indir
 test('stop: a committed, unchanged file that was only read through Bash is not reviewed', async () => {
   const { root } = committedRepo();
   const p = { tool_name: 'Bash', tool_input: { command: 'cat docs/guide.md' } };
-  assert.doesNotMatch(ctx(hook(root, 'post-tool', p)), /out of date/);
+  assert.doesNotMatch(ctx(hook(root, 'post-tool', p)), /out of date|no review yet/);
   assert.deepEqual(await reviewedAtStop(root, 'cat docs/guide.md'), []);
   assert.ok(!existsSync(join(root, '.seal/.state/review.log')));
 });
@@ -318,7 +318,7 @@ test('post-tool: the Bash pre-filter also looks at the working directory', async
   const { root } = committedRepo({ passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**'] } } });
   write(root, 'docs/guide.md', 'changed in docs\n');
   const cwd = join(root, 'docs');
-  assert.match(ctx(hook(root, 'post-tool', { cwd, tool_name: 'Bash', tool_input: { command: 'sed -i x guide.md' } })), /docs\/guide\.md \[consistency\]: review is now out of date/);
+  assert.match(ctx(hook(root, 'post-tool', { cwd, tool_name: 'Bash', tool_input: { command: 'sed -i x guide.md' } })), /docs\/guide\.md \[consistency\]: has no review yet/);
   assert.deepEqual(await reviewedAtStop(root, 'sed -i x guide.md', cwd), ['docs/guide.md']);
 });
 
@@ -327,7 +327,7 @@ test('post-tool: an edit to a covered path that git ignores is not reported', ()
   write(root, '.gitignore', 'docs/ignored.md\n');
   write(root, 'docs/ignored.md', 'scratch\n');
   assert.equal(hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/ignored.md') } }).out, '');
-  assert.match(ctx(hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } })), /out of date/);
+  assert.match(ctx(hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } })), /has no review yet/);
 });
 
 test('stop: old session files are cleaned up even when autoReview is off', () => {

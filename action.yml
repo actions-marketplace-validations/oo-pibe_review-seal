@@ -143,6 +143,9 @@ runs:
           PARENTS="$(git cat-file -p "$LEASE" | grep -c '^parent ' || true)"
           if [ "$(git log -1 --format=%ae "$LEASE")" != "$BOT" ] || [ "$PARENTS" -gt 1 ]; then
             echo "::warning::review-seal: review-seal/scheduled has commits from people; not overwriting. Merge or close the pull request and delete the branch to resume."
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              echo "review-seal: nothing was reviewed. review-seal/scheduled has commits from people; merge or close its pull request and delete the branch to resume." >> "$GITHUB_STEP_SUMMARY"
+            fi
             touch "$RUNNER_TEMP/review-seal-due.skip"
             exit 0
           fi
@@ -197,6 +200,9 @@ runs:
         if [ -n "$(git status --porcelain -- "$LEDGER")" ]; then STATE="$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)"; fi
         if [ "$STATE" = "CLOSED" ]; then
           echo "::warning::review-seal: the scheduled pull request was closed; delete the review-seal/scheduled branch to resume"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            echo "review-seal: the scheduled pull request was closed, so these reviews were not kept. Delete the review-seal/scheduled branch to resume." >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ "$STATUS" != "0" ]; then echo "::error::review-seal: some reviews failed; see the log"; exit 1; fi
           exit 0
         fi

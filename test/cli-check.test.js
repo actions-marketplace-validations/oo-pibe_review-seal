@@ -111,7 +111,7 @@ test('open findings are flagged at save time but do not block', () => {
   assert.equal(r.code, 0);
   assert.match(r.err, /FLAG\s+docs\/guide\.md \[consistency\] open finding/);
   const gh = run(root, ['check', '--staged'], { env: { GITHUB_ACTIONS: 'true' } });
-  assert.match(gh.out, /^::warning file=docs\/guide\.md,title=review-seal consistency::L1:/m);
+  assert.match(gh.out, /^::warning file=docs\/guide\.md,line=1,title=review-seal consistency::L1:/m);
 });
 
 test('list shows status and counts', () => {
