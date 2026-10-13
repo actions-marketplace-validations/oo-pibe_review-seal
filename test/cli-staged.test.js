@@ -185,3 +185,35 @@ test('check --staged tells apart Latin-1 bytes that UTF-8 text would merge', () 
   assert.equal(r.code, 1);
   assert.match(r.err, /docs\/latin\.md/);
 });
+
+test('check --staged reads the config from the index: a working-tree-only config change cannot bypass it', () => {
+  const { root, git } = sealRepo();
+  git('add', '-A'); git('commit', '-qm', 'base', '--no-verify');
+  write(root, '.seal/config.json', JSON.stringify({ passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['nothing/**'] } } }));
+  write(root, 'docs/guide.md', 'Visitors need a tax number.\n');
+  git('add', 'docs/guide.md');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /BLOCK  docs\/guide\.md \[consistency\]/);
+});
+
+test('check --staged reads checklists from the index: a review against an unstaged checklist does not count', () => {
+  const { root, git } = sealRepo();
+  assert.equal(run(root, ['review', 'docs/guide.md']).code, 0);
+  git('add', '-A'); git('commit', '-qm', 'base', '--no-verify');
+  write(root, '.seal/rubrics/consistency.md', 'Anything goes.\n');
+  write(root, 'docs/guide.md', 'Visitors need a tax number.\n');
+  assert.equal(run(root, ['review', 'docs/guide.md']).code, 0);
+  git('add', 'docs/guide.md', '.seal/ledger.json');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /docs\/guide\.md \[consistency\]/);
+});
+
+test('check --staged uses the working-tree config when the index has none yet', () => {
+  const { root, git } = sealRepo();
+  git('add', 'docs/guide.md');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /docs\/guide\.md \[consistency\]/);
+});
