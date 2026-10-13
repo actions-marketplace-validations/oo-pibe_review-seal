@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, symlinkSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, symlinkSync, realpathSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -186,4 +186,48 @@ test('stop: a committed, unchanged file that was only read through Bash is not r
   assert.doesNotMatch(ctx(hook(root, 'post-tool', p)), /out of date/);
   assert.deepEqual(await reviewedAtStop(root, 'cat docs/guide.md'), []);
   assert.ok(!existsSync(join(root, '.seal/.state/review.log')));
+});
+
+const logLines = (p) => (existsSync(p) ? readFileSync(p, 'utf8').split('\n').filter(Boolean).length : 0);
+
+test('stop: a failing reviewer is not retried at once, is retried after the wait, and gives up after 3 failures until the file changes', async () => {
+  const { root } = sealRepo();
+  const log = join(mkdtempSync(join(tmpdir(), 'review-seal-log-')), 'calls.jsonl');
+  const env = { FAKE_CLAUDE_MODE: 'fail', FAKE_CLAUDE_LOG: log };
+  const fails = join(root, '.seal/.state/failures.json');
+  const lock = join(root, '.seal/.state/review.lock');
+  const stopAndSettle = async (expect) => {
+    hook(root, 'stop', {}, env);
+    if (expect > logLines(log)) await waitFor(() => logLines(log) >= expect && existsSync(fails) && !existsSync(lock));
+    else await sleep(1500);
+    await waitFor(() => !existsSync(lock));
+    return logLines(log);
+  };
+  const age = (minutes, failures) => {
+    const f = JSON.parse(readFileSync(fails, 'utf8'));
+    for (const v of Object.values(f)) { v.lastAt = new Date(Date.now() - minutes * 60_000).toISOString(); if (failures) v.failures = failures; }
+    writeFileSync(fails, JSON.stringify(f));
+  };
+  hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } });
+  assert.equal(await stopAndSettle(1), 1);
+  assert.equal(await stopAndSettle(1), 1);
+  age(11);
+  assert.equal(await stopAndSettle(2), 2);
+  age(60, 3);
+  assert.equal(await stopAndSettle(2), 2);
+  write(root, 'docs/guide.md', 'changed\n');
+  assert.equal(await stopAndSettle(3), 3);
+});
+
+test('stop: files reviewed or deleted since are dropped from the session', async () => {
+  const { root } = sealRepo();
+  write(root, 'docs/gone.md', 'g\n');
+  for (const f of ['docs/guide.md', 'docs/gone.md']) hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, f) } });
+  const session = () => JSON.parse(readFileSync(join(root, '.seal/.state/session-s1.json'), 'utf8')).touched;
+  assert.deepEqual(session().sort(), ['docs/gone.md', 'docs/guide.md']);
+  hook(root, 'stop', {});
+  await waitFor(() => existsSync(join(root, '.seal/ledger.json')) && !existsSync(join(root, '.seal/.state/review.lock')));
+  unlinkSync(join(root, 'docs/gone.md'));
+  hook(root, 'stop', {});
+  assert.deepEqual(session(), []);
 });

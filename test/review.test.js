@@ -208,3 +208,46 @@ test('drain also collects old orphaned drain files, not fresh ones', () => {
   assert.equal(existsSync(join(dir, 'inbox.jsonl.123.old')), false);
   assert.equal(existsSync(join(dir, 'inbox.jsonl.124.fresh')), true);
 });
+
+const failuresPath = (root) => join(root, STATE_DIR, 'failures.json');
+const ageFailures = (root, minutes, failures) => {
+  const f = JSON.parse(readFileSync(failuresPath(root), 'utf8'));
+  for (const v of Object.values(f)) { v.lastAt = new Date(Date.now() - minutes * 60_000).toISOString(); if (failures) v.failures = failures; }
+  writeFileSync(failuresPath(root), JSON.stringify(f));
+};
+
+test('backoff: a failed review waits 10 minutes, stops after 3 failures, and starts over when the file changes', async () => {
+  const { root } = sealRepo();
+  const cfg = loadConfig(root);
+  let calls = 0;
+  const failing = async () => { calls++; return { ok: false, error: 'boom' }; };
+  const opts = { run: failing, backoff: true };
+  await reviewFiles(root, cfg, ['docs/guide.md'], opts);
+  const f = JSON.parse(readFileSync(failuresPath(root), 'utf8'));
+  const [key] = Object.keys(f);
+  assert.match(key, /^docs\/guide\.md\|consistency\|sha256:/);
+  assert.equal(f[key].failures, 1);
+  await reviewFiles(root, cfg, ['docs/guide.md'], opts);
+  assert.equal(calls, 1);
+  ageFailures(root, 11);
+  await reviewFiles(root, cfg, ['docs/guide.md'], opts);
+  assert.equal(calls, 2);
+  ageFailures(root, 60, 3);
+  await reviewFiles(root, cfg, ['docs/guide.md'], opts);
+  assert.equal(calls, 2);
+  write(root, 'docs/guide.md', 'changed\n');
+  await reviewFiles(root, cfg, ['docs/guide.md'], opts);
+  assert.equal(calls, 3);
+});
+
+test('backoff: a success clears the record; an explicit review (no backoff) always runs', async () => {
+  const { root } = sealRepo();
+  const cfg = loadConfig(root);
+  let calls = 0;
+  const failing = async () => { calls++; return { ok: false, error: 'boom' }; };
+  await reviewFiles(root, cfg, ['docs/guide.md'], { run: failing, backoff: true });
+  await reviewFiles(root, cfg, ['docs/guide.md'], { run: failing });
+  assert.equal(calls, 2);
+  await reviewFiles(root, cfg, ['docs/guide.md'], { run: fake() });
+  assert.deepEqual(JSON.parse(readFileSync(failuresPath(root), 'utf8')), {});
+});
