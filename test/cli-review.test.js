@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, statSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { sealRepo, write, run, FAKE_CLAUDE } from './helpers.js';
 
@@ -74,4 +74,12 @@ test('review --auto --session tags what it leaves in the inbox', () => {
   assert.equal(r.code, 1);
   const items = readFileSync(join(root, '.seal/.state/inbox.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(items.map((i) => i.session), ['abc']);
+});
+
+test('review refuses a symlink', () => {
+  const { root } = sealRepo();
+  symlinkSync('guide.md', join(root, 'docs/link.md'));
+  const r = run(root, ['review', 'docs/link.md']);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /docs\/link\.md is a symlink; review-seal skips symlinks/);
 });

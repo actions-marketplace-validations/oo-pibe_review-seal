@@ -90,3 +90,14 @@ test('tmpRepo root is a realpath and the harness env is clean', async () => {
   const { root } = tmpRepo();
   assert.equal(repoRoot(root), root);
 });
+
+test('stagedFiles and changedSince skip symlinks', () => {
+  const { root, git } = sealRepo();
+  git('add', '-A'); git('commit', '-qm', 'init');
+  symlinkSync('guide.md', join(root, 'docs/link.md'));
+  write(root, 'docs/real.md', 'real\n');
+  git('add', '-A');
+  assert.deepEqual(stagedFiles(root), ['docs/real.md']);
+  git('commit', '-qm', 'more');
+  assert.deepEqual(changedSince(root, 'HEAD~1'), ['docs/real.md']);
+});
