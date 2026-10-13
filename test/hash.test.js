@@ -22,7 +22,7 @@ test('computeToken binds every field and sorts findings', () => {
   const t = computeToken('docs/x.md', 'consistency', e);
   assert.match(t, /^rv_[0-9a-f]{12}$/);
   assert.equal(computeToken('docs/x.md', 'consistency', { ...e, findings: ['a', 'b'] }), t);
-  for (const change of [{ verdict: 'clean' }, { reviewer: 'builder' }, { via: 'manual' }, { rubricHash: 'sha256:cccccccccccccccc' }, { findings: ['a'] }]) {
+  for (const change of [{ verdict: 'clean' }, { reviewer: 'builder' }, { via: 'manual' }, { rubricHash: 'sha256:cccccccccccccccc' }, { contentHash: 'sha256:dddddddddddddddd' }, { findings: ['a'] }]) {
     assert.notEqual(computeToken('docs/x.md', 'consistency', { ...e, ...change }), t, JSON.stringify(change));
   }
   assert.notEqual(computeToken('docs/y.md', 'consistency', e), t);

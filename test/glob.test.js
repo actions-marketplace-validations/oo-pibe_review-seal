@@ -26,3 +26,20 @@ test('dots and brackets are literal; ./ and backslashes are normalised', () => {
 test('trailing ** matches everything below', () => {
   assert.ok(matchAny('content/a/b/c.md', ['content/**']));
 });
+
+test('bracket literals and leading **/ matching top-level files', () => {
+  assert.ok(matchAny('x/[1].md', ['x/[1].md']));
+  assert.ok(!matchAny('x/1.md', ['x/[1].md']));
+  assert.ok(matchAny('a.md', ['**/*.md']));
+});
+
+test('repeated **/ does not backtrack catastrophically', () => {
+  const t = Date.now();
+  assert.equal(matchAny('a/'.repeat(30) + 'x.txt', ['**/**/**/**/**/**/**/**/*.md']), false);
+  assert.ok(Date.now() - t < 1000);
+});
+
+test('leading ./ or / on a glob is ignored', () => {
+  assert.ok(matchAny('docs/a.md', ['/docs/*.md']));
+  assert.ok(matchAny('docs/a.md', ['./docs/*.md']));
+});
