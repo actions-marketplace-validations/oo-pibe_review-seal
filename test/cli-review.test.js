@@ -147,3 +147,18 @@ test('a manual review that finds the lock held names the command to retry', () =
   assert.equal(r.code, 1);
   assert.match(r.err, /another review is already running; run review-seal review docs\/guide\.md when it finishes/);
 });
+
+test('review.log is capped: past 256 KB it keeps the last 128 KB, cut at a line boundary', () => {
+  const { root } = sealRepo();
+  mkdirSync(join(root, '.seal/.state'), { recursive: true });
+  const line = (i) => `2026-01-01T00:00:00.000Z old line ${String(i).padStart(6, '0')} ${'x'.repeat(60)}\n`;
+  let big = '';
+  for (let i = 0; big.length <= 300 * 1024; i++) big += line(i);
+  writeFileSync(join(root, '.seal/.state/review.log'), big);
+  assert.equal(run(root, ['review', '--auto', 'docs/guide.md']).code, 0);
+  const after = readFileSync(join(root, '.seal/.state/review.log'), 'utf8');
+  assert.ok(after.length <= 128 * 1024 + 1024, `log is ${after.length} bytes`);
+  assert.ok(after.length >= 100 * 1024);
+  assert.match(after, /^2026-01-01T00:00:00\.000Z old line \d{6} x+\n/);
+  assert.match(after, /reviewing docs\/guide\.md/);
+});
