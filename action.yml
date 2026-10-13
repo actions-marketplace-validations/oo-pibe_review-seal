@@ -18,6 +18,18 @@ inputs:
       "false" prints this run's reviews, then puts the ledger back as committed, so the check judges what is actually on the branch.
     required: false
     default: "true"
+  mode:
+    description: >-
+      "pr" (default) reviews a pull request's changed files.
+      "due" re-reviews every covered file that is stale or past its shelf life, for a scheduled workflow, and opens or updates a pull request with the results.
+    required: false
+    default: pr
+  github-token:
+    description: >-
+      Token used to open the pull request in "due" mode. A pull request opened with the default token does not start other workflows;
+      pass a personal access token if checks should run on it.
+    required: false
+    default: ${{ github.token }}
   claude-code-version:
     description: Version of @anthropic-ai/claude-code to install.
     required: false
@@ -30,9 +42,12 @@ runs:
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         BASE: ${{ inputs.base }}
+        MODE: ${{ inputs.mode }}
       run: |
-        if [ -z "${BASE}" ]; then echo "::error::review-seal: no base branch (this action runs on pull_request events)"; exit 1; fi
+        if [ "${MODE}" != "pr" ] && [ "${MODE}" != "due" ]; then echo "::error::review-seal: mode must be \"pr\" or \"due\""; exit 1; fi
         if [ -z "${ANTHROPIC_API_KEY}" ]; then echo "::error::review-seal: anthropic-api-key is empty (fork pull request or missing secret)"; exit 1; fi
+        if [ "${MODE}" = "due" ]; then exit 0; fi
+        if [ -z "${BASE}" ]; then echo "::error::review-seal: no base branch (this action runs on pull_request events)"; exit 1; fi
         if ! git rev-parse --verify --quiet "origin/${BASE}" >/dev/null; then echo "::error::review-seal: origin/${BASE} not found; use actions/checkout with fetch-depth: 0"; exit 1; fi
     - name: Install Claude Code
       shell: bash
@@ -40,6 +55,7 @@ runs:
         CC_VERSION: ${{ inputs.claude-code-version }}
       run: npm install -g "@anthropic-ai/claude-code@${CC_VERSION}"
     - name: Review changed files
+      if: inputs.mode == 'pr'
       shell: bash
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
@@ -48,7 +64,7 @@ runs:
         cd "$(git rev-parse --show-toplevel)"
         node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" 2>&1 | tee "$RUNNER_TEMP/review-seal-review.log" || true
     - name: Commit the ledger
-      if: inputs.commit == 'true'
+      if: inputs.mode == 'pr' && inputs.commit == 'true'
       shell: bash
       run: |
         cd "$(git rev-parse --show-toplevel)"
@@ -62,7 +78,7 @@ runs:
           git push
         fi
     - name: Restore the ledger
-      if: inputs.commit != 'true'
+      if: inputs.mode == 'pr' && inputs.commit != 'true'
       shell: bash
       run: |
         cd "$(git rev-parse --show-toplevel)"
@@ -71,9 +87,43 @@ runs:
         cat "$RUNNER_TEMP/review-seal-review.log" 2>/dev/null || true
         git checkout -- "$LEDGER" 2>/dev/null || rm -f -- "$LEDGER"
     - name: Check
+      if: inputs.mode == 'pr'
       shell: bash
       env:
         BASE: ${{ inputs.base }}
       run: |
         cd "$(git rev-parse --show-toplevel)"
         node "$GITHUB_ACTION_PATH/bin/review-seal.js" check --changed-since "origin/${BASE}"
+    - name: Re-review what is due
+      if: inputs.mode == 'due'
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        cd "$(git rev-parse --show-toplevel)"
+        node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --due 2>&1 | tee "$RUNNER_TEMP/review-seal-due.log" || true
+    - name: Open or update the pull request
+      if: inputs.mode == 'due'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        cd "$(git rev-parse --show-toplevel)"
+        LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
+        if [ -z "$(git status --porcelain -- "$LEDGER")" ]; then echo "review-seal: nothing was due."; exit 0; fi
+        START="$(git symbolic-ref -q --short HEAD || true)"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git checkout -B review-seal/scheduled
+        git add -- "$LEDGER"
+        git commit -m "review-seal: scheduled re-review"
+        git push -f origin review-seal/scheduled
+        BODY="$RUNNER_TEMP/review-seal-pr.md"
+        { printf 'Scheduled re-review of files that were stale or past their shelf life.\n\n~~~~~~~~\n'; cat "$RUNNER_TEMP/review-seal-due.log" 2>/dev/null || true; printf '\n~~~~~~~~\n'; } > "$BODY"
+        if [ "$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)" = "OPEN" ]; then
+          gh pr edit review-seal/scheduled --body-file "$BODY"
+        elif [ -n "$START" ]; then
+          gh pr create --head review-seal/scheduled --base "$START" --title "review-seal: scheduled re-review" --body-file "$BODY"
+        else
+          gh pr create --head review-seal/scheduled --title "review-seal: scheduled re-review" --body-file "$BODY"
+        fi
