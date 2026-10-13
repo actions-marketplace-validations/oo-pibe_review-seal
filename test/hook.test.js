@@ -115,6 +115,24 @@ test('user-prompt: errors say when the review is retried and how to retry now; f
   assert.doesNotMatch(f, /Automatic retry/);
 });
 
+test('user-prompt: after the third failure on a version the tail says retries stopped', () => {
+  const { root } = sealRepo();
+  mkdirSync(join(root, '.seal/.state'), { recursive: true });
+  const h = 'sha256:' + 'c'.repeat(16);
+  writeFileSync(join(root, '.seal/.state/failures.json'), JSON.stringify({ [`docs/x.md|consistency|${h}`]: { failures: 3, lastAt: new Date().toISOString() } }));
+  appendInbox(root, [{ file: 'docs/x.md', pass: 'consistency', contentHash: h, error: 'boom' }]);
+  const e = ctx(hook(root, 'user-prompt', {}));
+  assert.match(e, /Automatic retries stopped after 3 failures on this version; run \/review-seal:review docs\/x\.md/);
+  assert.doesNotMatch(e, /retry after 10 minutes/);
+});
+
+test('review --auto records the version a failed review was for in the inbox', () => {
+  const { root } = sealRepo();
+  run(root, ['review', '--auto', '--', 'docs/guide.md'], { env: { FAKE_CLAUDE_MODE: 'fail' } });
+  const items = readFileSync(join(root, '.seal/.state/inbox.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.match(items[0].contentHash, /^sha256:[0-9a-f]{16}$/);
+});
+
 test('hooks are silent and exit 0: no config, not a repo, broken config, inside a reviewer', () => {
   const plain = tmpRepo().root;
   assert.deepEqual([hook(plain, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(plain, 'a.md') } }).code, hook(plain, 'post-tool', {}).out], [0, '']);

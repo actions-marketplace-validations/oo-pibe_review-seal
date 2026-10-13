@@ -121,6 +121,8 @@ runs:
       shell: bash
       env:
         BASE: ${{ inputs.base }}
+        # Read by the check, so its hint says when this run's reviews were not kept.
+        REVIEW_SEAL_COMMIT: ${{ inputs.commit }}
       run: |
         cd "$(git rev-parse --show-toplevel)"
         node "$GITHUB_ACTION_PATH/bin/review-seal.js" check --changed-since "origin/${BASE}"
