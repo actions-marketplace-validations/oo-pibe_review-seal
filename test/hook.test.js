@@ -289,3 +289,30 @@ test('user-prompt: results go to the session whose turn started the review', asy
   assert.equal(hook(root, 'user-prompt', { session_id: 'other' }).out, '');
   assert.match(ctx(hook(root, 'user-prompt', { session_id: 's1' })), /docs\/guide\.md \[consistency\]: the review could not run/);
 });
+
+test('post-tool: the Bash pre-filter also looks at the working directory', async () => {
+  const { root } = committedRepo({ passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**'] } } });
+  write(root, 'docs/guide.md', 'changed in docs\n');
+  const cwd = join(root, 'docs');
+  assert.match(ctx(hook(root, 'post-tool', { cwd, tool_name: 'Bash', tool_input: { command: 'sed -i x guide.md' } })), /docs\/guide\.md \[consistency\]: review is now out of date/);
+  assert.deepEqual(await reviewedAtStop(root, 'sed -i x guide.md', cwd), ['docs/guide.md']);
+});
+
+test('post-tool: an edit to a covered path that git ignores is not reported', () => {
+  const { root } = sealRepo();
+  write(root, '.gitignore', 'docs/ignored.md\n');
+  write(root, 'docs/ignored.md', 'scratch\n');
+  assert.equal(hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/ignored.md') } }).out, '');
+  assert.match(ctx(hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } })), /out of date/);
+});
+
+test('stop: old session files are cleaned up even when autoReview is off', () => {
+  const { root } = sealRepo({ autoReview: 'off' });
+  const dir = join(root, '.seal/.state');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'session-old.json'), '{}');
+  const old = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  utimesSync(join(dir, 'session-old.json'), old, old);
+  hook(root, 'stop', {});
+  assert.ok(!existsSync(join(dir, 'session-old.json')));
+});
