@@ -112,3 +112,14 @@ test('no config: plain error, exit 2', () => {
   assert.equal(r.code, 2);
   assert.match(r.err, /run "review-seal init" first/);
 });
+
+test('ledger-path prints the configured ledger path; exit 2 without a config', () => {
+  assert.equal(run(sealRepo().root, ['ledger-path']).out, '.seal/ledger.json\n');
+  const custom = run(sealRepo({ ledger: 'audit/seals.json' }).root, ['ledger-path']);
+  assert.equal(custom.code, 0);
+  assert.equal(custom.out, 'audit/seals.json\n');
+  const none = run(tmpRepo().root, ['ledger-path']);
+  assert.equal(none.code, 2);
+  assert.match(none.err, /run "review-seal init" first/);
+  assert.equal(run(sealRepo().root, ['ledger-path', '--staged']).code, 2);
+});
