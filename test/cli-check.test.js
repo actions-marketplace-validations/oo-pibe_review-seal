@@ -79,12 +79,24 @@ test('hand-edited ledger blocks', () => {
 
 test('trivial edit with patterns configured only warns', () => {
   const { root, git } = sealRepo({ substantive: { patterns: ['\\bonly\\b'] } });
+  assert.equal(run(root, ['review', 'docs/guide.md']).code, 0);
   git('add', '-A'); git('commit', '-qm', 'init');
   write(root, 'docs/guide.md', 'Visitors can buy tickets with a passport. Bring a jacket.\n');
   git('add', '-A');
   const r = run(root, ['check', '--staged']);
   assert.equal(r.code, 0);
   assert.match(r.err, /WARN/);
+});
+
+test('a new covered file with a trivial change and no review blocks (never reviewed is never soft)', () => {
+  const { root, git } = sealRepo({ substantive: { lines: 8, patterns: ['\\bonly\\b'] } });
+  git('add', '.seal', 'src/app.js'); git('commit', '-qm', 'init');
+  write(root, 'docs/new.md', '# Note\n\nVisitors must bring a printed ticket.\n');
+  git('add', 'docs/new.md');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /BLOCK\s+docs\/new\.md \[consistency\] never reviewed/);
+  assert.doesNotMatch(r.err, /WARN/);
 });
 
 test('open findings are flagged at save time but do not block', () => {

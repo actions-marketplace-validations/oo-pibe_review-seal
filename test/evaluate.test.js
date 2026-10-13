@@ -15,11 +15,12 @@ test('fresh independent seal passes and is counted', () => {
   assert.deepEqual(r.counts, { independent: 1, builder: 0 });
 });
 
-test('never reviewed: blocks if substantive, warns if trivial', () => {
+test('never reviewed: blocks whatever the size of the change', () => {
   assert.equal(evaluate([item()], {}, cfg()).blocks[0].reason, 'never-reviewed');
   const r = evaluate([item({ change: { substantive: false, why: 'tiny' } })], {}, cfg());
-  assert.equal(r.blocks.length, 0);
-  assert.equal(r.warnings[0].reason, 'never-reviewed');
+  assert.equal(r.warnings.length, 0);
+  assert.equal(r.blocks[0].reason, 'never-reviewed');
+  assert.equal(r.blocks[0].message, 'never reviewed');
 });
 
 test('edited after the review: stale', () => {
