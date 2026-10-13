@@ -1,7 +1,7 @@
 ---
 description: Run the independent review now for a file (reviews also run on their own when you finish a turn)
 argument-hint: <file> [more files]
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/review-seal.js" review:*)
 ---
 
 Run the review-seal reviewer now on: $ARGUMENTS
