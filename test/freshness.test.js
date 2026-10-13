@@ -173,7 +173,7 @@ test('WebFetch needs a list of domains, and the list is checked', () => {
     assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [bad] }), /"fetchDomains"/, String(bad));
   }
   assert.throws(() => cfgWith({ fetchDomains: ['x.com'] }), /needs WebFetch/);
-  assert.deepEqual(cfgWith({ tools: ['WebFetch'], fetchDomains: ['x.com', '*.gov.uk'] }).passes['fact-check'].fetchDomains, ['x.com', '*.gov.uk']);
+  assert.deepEqual(cfgWith({ tools: ['WebFetch'], fetchDomains: ['x.com', '*.example.org'] }).passes['fact-check'].fetchDomains, ['x.com', '*.example.org']);
   assert.deepEqual(cfgWith({}).passes['fact-check'].fetchDomains, []);
 });
 
@@ -221,4 +221,20 @@ test('review --all ignores shelf life; --due and named files include it', () => 
   write(root, '.seal/ledger.json', JSON.stringify({ 'docs/guide.md': { consistency: old } }));
   assert.match(run(root, ['review', '--due']).out, /docs\/guide\.md \[consistency\] clean/);
   assert.match(run(root, ['--help']).out, /--all .*ignores shelf life/);
+});
+
+test('Bearer is redacted only as a header or before a token-like value', async () => {
+  const { redactSecrets } = await import('../lib/reviewer.js');
+  assert.equal(redactSecrets('L4: the bearer of this ticket may enter'), 'L4: the bearer of this ticket may enter');
+  assert.equal(redactSecrets('L4: Bearer tokens expire'), 'L4: Bearer tokens expire');
+  assert.equal(redactSecrets('L4: curl -H "Bearer abcdefghijklmnopqrstuvwxyz012"'), 'L4: curl -H "Bearer [redacted]"');
+  assert.equal(redactSecrets('L4: authorization: bearer short'), 'L4: authorization: bearer [redacted]');
+});
+
+test('wildcard fetch domains must sit under a registrable name', () => {
+  assert.ok(cfgWith({ tools: ['WebFetch'], fetchDomains: ['*.example.com'] }));
+  for (const bad of ['*.co.uk', '*.vercel.app', '*.github.io', '*.com.au', '*.com']) {
+    assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [bad] }), /anyone can publish/, bad);
+  }
+  assert.ok(cfgWith({ tools: ['WebFetch'], fetchDomains: ['*.bbc.co.uk', 'example.vercel.app'] }));
 });
