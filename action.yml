@@ -21,7 +21,9 @@ inputs:
   mode:
     description: >-
       "pr" (default) reviews a pull request's changed files.
-      "due" re-reviews every covered file that is stale or past its shelf life, for a scheduled workflow, and opens or updates a pull request with the results.
+      "due" re-reviews every covered file that is stale or past its shelf life, for a scheduled workflow, and opens or updates a pull request with the results
+      from the branch review-seal/scheduled. Due mode needs "permissions: contents: write, pull-requests: write" in the workflow and the repository setting
+      "Allow GitHub Actions to create and approve pull requests" (Settings, Actions, General) when it uses the default token.
     required: false
     default: pr
   github-token:
@@ -62,6 +64,16 @@ runs:
         BASE: ${{ inputs.base }}
       run: |
         cd "$(git rev-parse --show-toplevel)"
+        # The reviewer can read files in the repository, so checkout's token is taken out of .git/config while it runs.
+        AUTH="$(git config --local --get-all http.https://github.com/.extraheader || true)"
+        restore_auth() {
+          if [ -n "$AUTH" ]; then
+            git config --local --unset-all http.https://github.com/.extraheader || true
+            printf '%s\n' "$AUTH" | while IFS= read -r h; do git config --local --add http.https://github.com/.extraheader "$h"; done
+          fi
+        }
+        trap restore_auth EXIT
+        git config --local --unset-all http.https://github.com/.extraheader || true
         node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" 2>&1 | tee "$RUNNER_TEMP/review-seal-review.log" || true
     - name: Commit the ledger
       if: inputs.mode == 'pr' && inputs.commit == 'true'
@@ -101,7 +113,36 @@ runs:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
       run: |
         cd "$(git rev-parse --show-toplevel)"
-        node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --due 2>&1 | tee "$RUNNER_TEMP/review-seal-due.log" || true
+        LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
+        BOT="41898282+github-actions[bot]@users.noreply.github.com"
+        rm -f "$RUNNER_TEMP/review-seal-due.skip" "$RUNNER_TEMP/review-seal-due.status"
+        : > "$RUNNER_TEMP/review-seal-due.log"
+        LEASE=""
+        if git fetch -q origin refs/heads/review-seal/scheduled 2>/dev/null; then
+          LEASE="$(git rev-parse FETCH_HEAD)"
+          PEOPLE="$(git log --format=%ae "HEAD..${LEASE}" | grep -vxF "$BOT" || true)"
+          if [ -n "$PEOPLE" ]; then
+            echo "::warning::review-seal: review-seal/scheduled has commits from people; not overwriting"
+            touch "$RUNNER_TEMP/review-seal-due.skip"
+            exit 0
+          fi
+          # Reviews the scheduled branch already renewed are kept, so they are not paid for twice.
+          git checkout "$LEASE" -- "$LEDGER" 2>/dev/null || true
+        fi
+        printf '%s' "$LEASE" > "$RUNNER_TEMP/review-seal-due.lease"
+        # The reviewer can read files in the repository, so checkout's token is taken out of .git/config while it runs.
+        AUTH="$(git config --local --get-all http.https://github.com/.extraheader || true)"
+        restore_auth() {
+          if [ -n "$AUTH" ]; then
+            git config --local --unset-all http.https://github.com/.extraheader || true
+            printf '%s\n' "$AUTH" | while IFS= read -r h; do git config --local --add http.https://github.com/.extraheader "$h"; done
+          fi
+        }
+        trap restore_auth EXIT
+        git config --local --unset-all http.https://github.com/.extraheader || true
+        STATUS=0
+        node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --due 2>&1 | tee "$RUNNER_TEMP/review-seal-due.log" || STATUS=$?
+        echo "$STATUS" > "$RUNNER_TEMP/review-seal-due.status"
     - name: Open or update the pull request
       if: inputs.mode == 'due'
       shell: bash
@@ -109,21 +150,40 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         cd "$(git rev-parse --show-toplevel)"
+        if [ -f "$RUNNER_TEMP/review-seal-due.skip" ]; then exit 0; fi
+        STATUS="$(cat "$RUNNER_TEMP/review-seal-due.status" 2>/dev/null || echo 1)"
+        LEASE="$(cat "$RUNNER_TEMP/review-seal-due.lease" 2>/dev/null || true)"
         LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
-        if [ -z "$(git status --porcelain -- "$LEDGER")" ]; then echo "review-seal: nothing was due."; exit 0; fi
-        START="$(git symbolic-ref -q --short HEAD || true)"
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git checkout -B review-seal/scheduled
-        git add -- "$LEDGER"
-        git commit -m "review-seal: scheduled re-review"
-        git push -f origin review-seal/scheduled
-        BODY="$RUNNER_TEMP/review-seal-pr.md"
-        { printf 'Scheduled re-review of files that were stale or past their shelf life.\n\n~~~~~~~~\n'; cat "$RUNNER_TEMP/review-seal-due.log" 2>/dev/null || true; printf '\n~~~~~~~~\n'; } > "$BODY"
-        if [ "$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)" = "OPEN" ]; then
-          gh pr edit review-seal/scheduled --body-file "$BODY"
-        elif [ -n "$START" ]; then
-          gh pr create --head review-seal/scheduled --base "$START" --title "review-seal: scheduled re-review" --body-file "$BODY"
-        else
-          gh pr create --head review-seal/scheduled --title "review-seal: scheduled re-review" --body-file "$BODY"
+        if [ -n "$(git status --porcelain -- "$LEDGER")" ]; then
+          START="$(git symbolic-ref -q --short HEAD || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B review-seal/scheduled
+          git add -- "$LEDGER"
+          git commit -m "review-seal: scheduled re-review"
+          # Refused if the branch moved since the review step looked at it.
+          git push --force-with-lease="refs/heads/review-seal/scheduled:${LEASE}" origin HEAD:refs/heads/review-seal/scheduled
+          BODY="$RUNNER_TEMP/review-seal-pr.md"
+          node -e '
+            const fs = require("fs");
+            let log = "";
+            try { log = fs.readFileSync(process.argv[1], "utf8"); } catch {}
+            const max = 60000;
+            const cut = log.length > max;
+            if (cut) log = log.slice(0, max);
+            const longest = Math.max(0, ...(log.match(/~+/g) || []).map((r) => r.length));
+            const fence = "~".repeat(Math.max(3, longest + 1));
+            const end = log.endsWith("\n") || !log ? "" : "\n";
+            process.stdout.write("Scheduled re-review of files that were stale or past their shelf life.\n\n" + fence + "\n" + log + end + fence + "\n" + (cut ? "\nlog truncated; see the workflow run\n" : ""));
+          ' "$RUNNER_TEMP/review-seal-due.log" > "$BODY"
+          if [ "$(gh pr view review-seal/scheduled --json state -q .state 2>/dev/null || true)" = "OPEN" ]; then
+            gh pr edit review-seal/scheduled --body-file "$BODY"
+          elif [ -n "$START" ]; then
+            gh pr create --head review-seal/scheduled --base "$START" --title "review-seal: scheduled re-review" --body-file "$BODY"
+          else
+            gh pr create --head review-seal/scheduled --title "review-seal: scheduled re-review" --body-file "$BODY"
+          fi
+        elif [ "$STATUS" = "0" ]; then
+          echo "review-seal: nothing was due."
         fi
+        if [ "$STATUS" != "0" ]; then echo "::error::review-seal: some reviews failed; see the log"; exit 1; fi

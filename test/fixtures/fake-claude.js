@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Test double for `claude -p`. Reads the prompt, echoes the hashes it was given,
 // and answers according to FAKE_CLAUDE_MODE. Logs each call when FAKE_CLAUDE_LOG is set.
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
@@ -10,7 +10,9 @@ const prompt = args[args.indexOf('-p') + 1] || '';
 const pick = (k) => (prompt.match(new RegExp(`"${k}":"([^"]*)"`)) || [])[1];
 const v = { file: pick('file'), pass: pick('pass'), contentHash: pick('contentHash'), rubricHash: pick('rubricHash') };
 const mode = process.env.FAKE_CLAUDE_MODE || 'clean';
-if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ ...v, args, pid: process.pid, claudecode: process.env.CLAUDECODE ?? null, projectDir: process.env.CLAUDE_PROJECT_DIR ?? null, child: process.env.REVIEW_SEAL_CHILD ?? null }) + '\n');
+// Whether checkout's credentials are readable in the repository's git config while the reviewer runs.
+function gitAuth() { try { return /extraheader/i.test(readFileSync('.git/config', 'utf8')); } catch { return null; } }
+if (process.env.FAKE_CLAUDE_LOG) appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({ ...v, args, pid: process.pid, claudecode: process.env.CLAUDECODE ?? null, projectDir: process.env.CLAUDE_PROJECT_DIR ?? null, child: process.env.REVIEW_SEAL_CHILD ?? null, gitAuth: gitAuth() }) + '\n');
 
 if (mode === 'fail') { process.stderr.write('boom'); process.exit(1); }
 if (mode === 'sleep-grandchild') {

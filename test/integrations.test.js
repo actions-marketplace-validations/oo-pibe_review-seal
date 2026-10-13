@@ -225,3 +225,115 @@ test('action, mode "due": nothing due means no branch and no pull request', () =
   assert.equal(git('rev-parse', '--abbrev-ref', 'HEAD').trim(), 'main');
   assert.ok(!existsSync(calls));
 });
+
+const AUTH_KEY = 'http.https://github.com/.extraheader';
+const AUTH = 'AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46c2VjcmV0';
+const reviewerCalls = (log) => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => c.args) : []);
+
+test('action: checkout credentials are out of git config while the reviewer runs, and back afterwards', () => {
+  for (const mode of ['clean', 'fail']) {
+    const { root, git } = prRepo();
+    git('config', '--local', AUTH_KEY, AUTH);
+    const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
+    assert.equal(step(root, 'Review changed files', { BASE: 'main', FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_MODE: mode }).code, 0);
+    const calls = reviewerCalls(log);
+    assert.ok(calls.length >= 1);
+    assert.ok(calls.every((c) => c.gitAuth === false), mode);
+    assert.equal(git('config', '--local', '--get-all', AUTH_KEY).trim(), AUTH);
+  }
+  const { root, git, env } = dueRepo();
+  git('config', '--local', AUTH_KEY, AUTH);
+  const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
+  assert.equal(step(root, 'Re-review what is due', { ...env, FAKE_CLAUDE_LOG: log }).code, 0);
+  const calls = reviewerCalls(log);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].gitAuth, false);
+  assert.equal(git('config', '--local', '--get-all', AUTH_KEY).trim(), AUTH);
+});
+
+// Puts a commit by `email` on origin's review-seal/scheduled, on top of main, from another clone.
+function pushScheduled(r, email) {
+  const other = join(mkdtempSync(join(tmpdir(), 'review-seal-clone-')), 'c');
+  const g = (...a) => execFileSync('git', a, { cwd: other, encoding: 'utf8', stdio: 'pipe', env: cleanEnv() });
+  execFileSync('git', ['clone', '-q', '-b', 'main', r.remote, other], { env: cleanEnv() });
+  write(other, 'docs/note.md', 'A note.\n');
+  g('add', '-A');
+  g('-c', 'user.name=someone', '-c', `user.email=${email}`, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'note');
+  g('push', '-qf', 'origin', 'HEAD:refs/heads/review-seal/scheduled');
+  return g('rev-parse', 'HEAD');
+}
+const BOT = '41898282+github-actions[bot]@users.noreply.github.com';
+
+test('action, mode "due": a scheduled branch with commits from people is left alone', () => {
+  const r = dueRepo();
+  const before = pushScheduled(r, 'person@example.com');
+  const d = step(r.root, 'Re-review what is due', r.env);
+  assert.equal(d.code, 0);
+  assert.match(d.out, /^::warning::review-seal: review-seal\/scheduled has commits from people; not overwriting/m);
+  const o = step(r.root, 'Open or update the pull request', r.env);
+  assert.equal(o.code, 0, o.err);
+  assert.equal(execFileSync('git', ['--git-dir', r.remote, 'rev-parse', 'review-seal/scheduled'], { encoding: 'utf8', env: cleanEnv() }), before);
+  assert.ok(!existsSync(r.calls));
+});
+
+test('action, mode "due": reviews already on the scheduled branch are reused, not paid for twice', () => {
+  const r = dueRepo();
+  assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+  assert.equal(step(r.root, 'Open or update the pull request', r.env).code, 0);
+  r.git('checkout', '-q', 'main');
+  const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
+  const d = step(r.root, 'Re-review what is due', { ...r.env, FAKE_CLAUDE_LOG: log });
+  assert.equal(d.code, 0, d.err);
+  assert.deepEqual(reviewerCalls(log), []);
+  const o = step(r.root, 'Open or update the pull request', r.env);
+  assert.equal(o.code, 0, o.err);
+  assert.equal(execFileSync('git', ['--git-dir', r.remote, 'rev-parse', 'review-seal/scheduled'], { encoding: 'utf8', env: cleanEnv() }), r.git('rev-parse', 'HEAD'));
+  assert.equal(run(r.root, ['check']).code, 0);
+});
+
+test('action, mode "due": a push to the scheduled branch during the run is not overwritten', () => {
+  const r = dueRepo();
+  assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+  pushScheduled(r, BOT);
+  const o = step(r.root, 'Open or update the pull request', r.env);
+  assert.notEqual(o.code, 0);
+  assert.match(o.err, /stale info|rejected/);
+  assert.ok(!existsSync(r.calls));
+});
+
+test('action, mode "due": failed reviews fail the run, after the pull request for the rest', () => {
+  const r = dueRepo();
+  assert.equal(step(r.root, 'Re-review what is due', { ...r.env, FAKE_CLAUDE_MODE: 'fail' }).code, 0);
+  const o = step(r.root, 'Open or update the pull request', r.env);
+  assert.equal(o.code, 1);
+  assert.match(o.out, /^::error::review-seal: some reviews failed; see the log/m);
+  assert.doesNotMatch(o.out, /nothing was due/);
+
+  const r2 = dueRepo();
+  assert.equal(step(r2.root, 'Re-review what is due', r2.env).code, 0);
+  writeFileSync(join(runnerTemp.get(r2.root), 'review-seal-due.status'), '1\n');
+  const o2 = step(r2.root, 'Open or update the pull request', r2.env);
+  assert.equal(o2.code, 1);
+  assert.match(o2.out, /^::error::review-seal: some reviews failed; see the log/m);
+  assert.match(readFileSync(r2.calls, 'utf8'), /^pr create /m);
+});
+
+test('action, mode "due": the PR body is fenced safely and kept under GitHub\'s limit', () => {
+  const r = dueRepo();
+  assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+  writeFileSync(join(runnerTemp.get(r.root), 'review-seal-due.log'), 'L1: ~~~~~ breaks out\n' + 'x'.repeat(70000));
+  assert.equal(step(r.root, 'Open or update the pull request', r.env).code, 0);
+  const body = readFileSync(r.calls + '.body', 'utf8');
+  assert.ok(body.length < 61000, String(body.length));
+  assert.match(body, /\n~~~~~~\nL1: ~~~~~ breaks out/);
+  assert.match(body, /x\n~~~~~~\n/);
+  assert.match(body, /log truncated; see the workflow run/);
+});
+
+test('action: the mode input says which permissions due mode needs', () => {
+  const y = readFileSync(new URL('../action.yml', import.meta.url), 'utf8');
+  const desc = y.split('\n  mode:\n')[1].split('\n  github-token:')[0];
+  assert.match(desc, /contents: write/);
+  assert.match(desc, /pull-requests: write/);
+  assert.match(desc, /Allow GitHub Actions to create and approve pull requests/);
+});
