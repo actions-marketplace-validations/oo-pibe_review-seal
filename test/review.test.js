@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, mkdirSync, readFileSync, existsSync, utimesSync, unlinkSync, readdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync, existsSync, utimesSync, unlinkSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { statSync } from 'node:fs';
 import { sealRepo, write } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { loadLedger, validateEntry } from '../lib/ledger.js';
@@ -180,4 +179,32 @@ test('state dir ignores itself', async () => {
   const { root } = sealRepo();
   await reviewFiles(root, loadConfig(root), ['docs/guide.md'], { run: fake() });
   assert.equal(readFileSync(join(root, STATE_DIR, '.gitignore'), 'utf8'), '*\n');
+});
+
+test('a run that lost its lock stops after the current job', async () => {
+  const { root } = sealRepo();
+  write(root, 'docs/b.md', 'b');
+  const cfg = loadConfig(root);
+  let calls = 0;
+  const run = async (job) => {
+    calls++;
+    writeFileSync(lockPath(root), JSON.stringify({ pid: process.pid, nonce: 'someone-else' }));
+    return fake()(job);
+  };
+  const r = await reviewFiles(root, cfg, ['docs/guide.md', 'docs/b.md'], { run });
+  assert.equal(calls, 1);
+  assert.equal(r.reviewed.length, 1);
+});
+
+test('drain also collects old orphaned drain files, not fresh ones', () => {
+  const { root } = sealRepo();
+  appendInbox(root, [{ file: 'live' }]);
+  const dir = join(root, STATE_DIR);
+  writeFileSync(join(dir, 'inbox.jsonl.123.old'), '{"file":"orphan"}\n');
+  writeFileSync(join(dir, 'inbox.jsonl.124.fresh'), '{"file":"busy"}\n');
+  const old = new Date(Date.now() - 120_000);
+  utimesSync(join(dir, 'inbox.jsonl.123.old'), old, old);
+  assert.deepEqual(drainInbox(root).map((i) => i.file).sort(), ['live', 'orphan']);
+  assert.equal(existsSync(join(dir, 'inbox.jsonl.123.old')), false);
+  assert.equal(existsSync(join(dir, 'inbox.jsonl.124.fresh')), true);
 });
