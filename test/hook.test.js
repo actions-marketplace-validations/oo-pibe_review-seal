@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { sealRepo, tmpRepo, write, run, FAKE_CLAUDE } from './helpers.js';
 import { touchedFiles, onPostTool } from '../lib/hook.js';
 import { appendInbox } from '../lib/review.js';
+import { workingTreeChanges } from '../lib/git.js';
 
 const hook = (root, event, payload, env) => run(root, ['hook', event], { input: JSON.stringify({ session_id: 's1', cwd: root, ...payload }), env });
 const ctx = (r) => (r.out ? JSON.parse(r.out).hookSpecificOutput.additionalContext : '');
@@ -134,3 +135,55 @@ test('post-tool: a Bash command naming nothing like a covered path returns witho
   assert.throws(() => onPostTool(b('cat docs/guide.md'), NO_REPO, CFG));
 });
 
+
+const waitFor = async (cond, ms = 5000) => { for (let t = 0; t < ms && !cond(); t += 100) await sleep(100); return cond(); };
+const committedRepo = (over) => {
+  const r = sealRepo(over);
+  r.git('add', '-A');
+  r.git('commit', '-qm', 'init');
+  return r;
+};
+const reviewedAtStop = async (root, command, cwd = root) => {
+  hook(root, 'post-tool', { cwd, tool_name: 'Bash', tool_input: { command } });
+  hook(root, 'stop', {});
+  const led = join(root, '.seal/ledger.json');
+  await waitFor(() => existsSync(led) && !existsSync(join(root, '.seal/.state/review.lock')));
+  return existsSync(led) ? Object.keys(JSON.parse(readFileSync(led, 'utf8'))) : [];
+};
+
+test('touchedFiles: Bash matches need a path boundary on both sides', () => {
+  const root = '/repo';
+  const t = (command, covered) => touchedFiles({ tool_name: 'Bash', tool_input: { command }, cwd: root }, root, covered);
+  assert.deepEqual(t('cat NOT_README.md', ['README.md']), []);
+  assert.deepEqual(t('cat olddocs/guide.md', ['docs/guide.md']), []);
+  assert.deepEqual(t('cat docs/guide.md.bak', ['docs/guide.md']), []);
+  assert.deepEqual(t('cat ./docs/guide.md', ['docs/guide.md']), ['docs/guide.md']);
+  assert.deepEqual(t('x="docs/guide.md"; echo hi>docs/guide.md', ['docs/guide.md']), ['docs/guide.md']);
+  assert.deepEqual(t('cat README.md|wc', ['README.md']), ['README.md']);
+  assert.deepEqual(t('(cat /repo/README.md)', ['README.md']), ['README.md']);
+});
+
+test('workingTreeChanges: modified, staged, untracked and renamed files, relative to the root', () => {
+  const { root, git } = committedRepo();
+  write(root, 'docs/guide.md', 'changed\n');
+  write(root, 'docs/new/deep.md', 'n\n');
+  git('mv', 'src/app.js', 'src/moved.js');
+  assert.deepEqual(workingTreeChanges(root).sort(), ['docs/guide.md', 'docs/new/deep.md', 'src/moved.js']);
+});
+
+test('stop: reviews a covered file changed by a Bash command that names it indirectly', async () => {
+  const { root } = committedRepo();
+  write(root, 'docs/guide.md', 'changed once\n');
+  assert.deepEqual(await reviewedAtStop(root, 'cd docs && sed -i x guide.md'), ['docs/guide.md']);
+  const g = committedRepo().root;
+  write(g, 'docs/guide.md', 'changed twice\n');
+  assert.deepEqual(await reviewedAtStop(g, 'sed -i s/a/b/ docs/*.md'), ['docs/guide.md']);
+});
+
+test('stop: a committed, unchanged file that was only read through Bash is not reviewed', async () => {
+  const { root } = committedRepo();
+  const p = { tool_name: 'Bash', tool_input: { command: 'cat docs/guide.md' } };
+  assert.doesNotMatch(ctx(hook(root, 'post-tool', p)), /out of date/);
+  assert.deepEqual(await reviewedAtStop(root, 'cat docs/guide.md'), []);
+  assert.ok(!existsSync(join(root, '.seal/.state/review.log')));
+});
