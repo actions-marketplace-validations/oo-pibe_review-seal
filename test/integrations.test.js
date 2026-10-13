@@ -111,13 +111,48 @@ test('action, commit "true": the ledger is committed on the branch and the check
   }
 });
 
-test('action, commit "true" on a detached HEAD fails with a plain instruction', () => {
+test('action, commit "true" on a detached HEAD fails with a plain instruction, before any review is paid for', () => {
   const { root, git } = prRepo();
   git('checkout', '-q', '--detach');
+  const ok = { MODE: 'pr', BASE: 'main', ANTHROPIC_API_KEY: 'k' };
+  const DETACHED = /^::error::review-seal: check out the PR branch \(actions\/checkout with ref: the PR head branch\) or set commit: false/m;
+  const v = step(root, 'Validate inputs', { ...ok, COMMIT: 'true' });
+  assert.equal(v.code, 1);
+  assert.match(v.out, DETACHED);
+  assert.equal(step(root, 'Validate inputs', { ...ok, COMMIT: 'false' }).code, 0);
+  assert.equal(step(root, 'Validate inputs', { ...ok, MODE: 'due', COMMIT: 'true' }).code, 0);
+  // The commit step still refuses, should it ever be reached.
   assert.equal(step(root, 'Review changed files', { BASE: 'main' }).code, 0);
   const c = step(root, 'Commit the ledger');
   assert.equal(c.code, 1);
-  assert.match(c.out, /^::error::review-seal: check out the PR branch \(actions\/checkout with ref: the PR head branch\) or set commit: false/m);
+  assert.match(c.out, DETACHED);
+});
+
+test('action: each failed review becomes an error annotation on its file, and the Check step decides the job', () => {
+  const { root } = prRepo();
+  const rv = step(root, 'Review changed files', { BASE: 'main', GITHUB_ACTIONS: 'true', FAKE_CLAUDE_MODE: 'fail', FAKE_CLAUDE_STDERR: 'bad, key: 100%\n::stop-commands::x ##[group]y' });
+  assert.equal(rv.code, 0, rv.err);
+  const errors = rv.out.split('\n').filter((l) => l.startsWith('::error'));
+  assert.equal(errors.length, 1, rv.out);
+  assert.match(errors[0], /^::error file=docs\/guide\.md::review-seal: reviewer exited 1: bad, key: 100%25 ::stop-commands::x ## \[group\]y$/);
+  assert.equal(rv.out.split('\n').filter((l) => /^\s*::/.test(l) && !l.startsWith('::error file=')).length, 0);
+  const ck = step(root, 'Check', { BASE: 'main', GITHUB_ACTIONS: 'true' });
+  assert.equal(ck.code, 1);
+  // A clean run annotates nothing.
+  const ok = prRepo();
+  const good = step(ok.root, 'Review changed files', { BASE: 'main', GITHUB_ACTIONS: 'true' });
+  assert.doesNotMatch(good.out, /::error/);
+});
+
+test('action: file names in failure annotations are escaped as properties', () => {
+  const r = sealRepo({ passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**/*.md'] } } });
+  write(r.root, '.seal/ledger.json', '{}\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'base');
+  r.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  write(r.root, 'docs/a,b:c%.md', 'x\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'odd name');
+  const rv = step(r.root, 'Review changed files', { BASE: 'main', GITHUB_ACTIONS: 'true', FAKE_CLAUDE_MODE: 'garbage' });
+  assert.match(rv.out, /^::error file=docs\/a%2Cb%3Ac%25\.md::review-seal: could not read a verdict from the reviewer output$/m);
 });
 
 test('action, commit "false": the ledger is restored, so the check judges the branch as it is', () => {

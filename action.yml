@@ -45,12 +45,15 @@ runs:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         BASE: ${{ inputs.base }}
         MODE: ${{ inputs.mode }}
+        COMMIT: ${{ inputs.commit }}
       run: |
         if [ "${MODE}" != "pr" ] && [ "${MODE}" != "due" ]; then echo "::error::review-seal: mode must be \"pr\" or \"due\""; exit 1; fi
         if [ -z "${ANTHROPIC_API_KEY}" ]; then echo "::error::review-seal: anthropic-api-key is empty (fork pull request or missing secret)"; exit 1; fi
         if [ "${MODE}" = "due" ]; then exit 0; fi
         if [ -z "${BASE}" ]; then echo "::error::review-seal: no base branch (this action runs on pull_request events)"; exit 1; fi
         if ! git rev-parse --verify --quiet "origin/${BASE}" >/dev/null; then echo "::error::review-seal: origin/${BASE} not found; use actions/checkout with fetch-depth: 0"; exit 1; fi
+        # A detached HEAD cannot be pushed, so stop before any review is paid for.
+        if [ "${COMMIT}" = "true" ] && ! git symbolic-ref -q HEAD >/dev/null; then echo "::error::review-seal: check out the PR branch (actions/checkout with ref: the PR head branch) or set commit: false"; exit 1; fi
     - name: Install Claude Code
       shell: bash
       env:
@@ -75,7 +78,21 @@ runs:
         }
         trap restore_auth EXIT
         git config --local --unset-all http.https://github.com/.extraheader || true
-        node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" 2>&1 | tee "$RUNNER_TEMP/review-seal-review.log" || true
+        SUMMARY="$RUNNER_TEMP/review-seal-review.json"
+        rm -f "$SUMMARY"
+        # The job's verdict is the Check step's; a failed review shows here as an error on its file.
+        node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" --json "$SUMMARY" 2>&1 | tee "$RUNNER_TEMP/review-seal-review.log" || true
+        node --input-type=module -e '
+          import fs from "node:fs";
+          import { pathToFileURL } from "node:url";
+          const { sanitizeText, ciSafe, ghData, ghProp } = await import(pathToFileURL(process.env.GITHUB_ACTION_PATH + "/lib/text.js"));
+          let s;
+          try { s = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { process.exit(0); }
+          const t = (x) => ciSafe(sanitizeText(x), { GITHUB_ACTIONS: "true" });
+          for (const f of Array.isArray(s.failed) ? s.failed : []) {
+            process.stdout.write(`::error file=${ghProp(t(f.file))}::${ghData(t("review-seal: " + f.error))}\n`);
+          }
+        ' "$SUMMARY" || true
     - name: Commit the ledger
       if: inputs.mode == 'pr' && inputs.commit == 'true'
       shell: bash
