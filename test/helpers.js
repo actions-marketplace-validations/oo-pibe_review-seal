@@ -12,6 +12,7 @@ for (const k of Object.keys(process.env)) {
   if (/^(GIT_|CLAUDE|FAKE_CLAUDE_)/.test(k)) delete process.env[k];
 }
 delete process.env.REVIEW_SEAL_CHILD;
+delete process.env.PRE_COMMIT;
 Object.assign(process.env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', TZ: 'UTC' });
 
 export const cleanEnv = () => ({ ...process.env });

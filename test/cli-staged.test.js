@@ -145,3 +145,19 @@ test('an alternate index outside the git dir leaves the repository index alone',
   assert.equal(r.code, 0, r.err);
   assert.doesNotMatch(git('diff', '--cached', '--name-only'), /ledger\.json/);
 });
+
+test('under pre-commit, a block tells the user to stage the ledger (pre-commit hides unstaged changes)', () => {
+  const { root, git } = sealRepo();
+  write(root, '.seal/ledger.json', '{}\n'); // tracked, as init leaves it
+  git('add', '.seal', 'src/app.js'); git('commit', '-qm', 'base');
+  assert.equal(run(root, ['review', 'docs/guide.md']).code, 0);
+  git('add', 'docs/guide.md');
+  // What pre-commit does before running hooks: unstaged changes, the new review among them, are stashed away.
+  git('checkout', '--', '.seal/ledger.json');
+  const r = run(root, ['check', '--staged'], { env: { PRE_COMMIT: '1' } });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /stage \.seal\/ledger\.json with your change \(git add \.seal\/ledger\.json\) and commit again/);
+  const plain = run(root, ['check', '--staged']);
+  assert.equal(plain.code, 1);
+  assert.doesNotMatch(plain.err, /git add \.seal\/ledger\.json/);
+});
