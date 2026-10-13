@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync, existsSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
+import { statSync } from 'node:fs';
 import { sealRepo, write } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { loadLedger, validateEntry } from '../lib/ledger.js';
@@ -77,4 +78,57 @@ test('findings and failures go to the inbox; draining empties it', async () => {
 test('pendingJobs ignores uncovered and missing files', () => {
   const { root } = sealRepo();
   assert.deepEqual(pendingJobs(root, loadConfig(root), ['src/app.js', 'docs/missing.md', 'docs/guide.md']).map((j) => j.file), ['docs/guide.md']);
+});
+
+const lockPath = (root) => join(root, STATE_DIR, 'review.lock');
+const putLock = (root, content) => { mkdirSync(join(root, STATE_DIR), { recursive: true }); writeFileSync(lockPath(root), content); };
+
+test('a lock held by a live pid skips the run', async () => {
+  const { root } = sealRepo();
+  putLock(root, JSON.stringify({ pid: process.pid, nonce: 'x' }));
+  const r = await reviewFiles(root, loadConfig(root), ['docs/guide.md'], { run: fake() });
+  assert.equal(r.skipped, 'locked');
+  assert.equal(r.remaining, null);
+});
+
+test('a lock from a dead pid is taken over', async () => {
+  const { root } = sealRepo();
+  putLock(root, JSON.stringify({ pid: 999999, nonce: 'x' }));
+  const r = await reviewFiles(root, loadConfig(root), ['docs/guide.md'], { run: fake() });
+  assert.equal(r.reviewed.length, 1);
+  assert.equal(existsSync(lockPath(root)), false);
+});
+
+test('a live-pid lock older than the stale window is taken over', async () => {
+  const { root } = sealRepo();
+  putLock(root, JSON.stringify({ pid: process.pid, nonce: 'x' }));
+  const old = new Date(Date.now() - 3600_000);
+  utimesSync(lockPath(root), old, old);
+  const r = await reviewFiles(root, loadConfig(root), ['docs/guide.md'], { run: fake() });
+  assert.equal(r.reviewed.length, 1);
+});
+
+test('a run never removes a lock that is not its own', async () => {
+  const { root } = sealRepo();
+  const cfg = loadConfig(root);
+  const other = JSON.stringify({ pid: process.pid, nonce: 'other' });
+  const run = async (job) => { writeFileSync(lockPath(root), other); return fake()(job); };
+  await reviewFiles(root, cfg, ['docs/guide.md'], { run });
+  assert.equal(readFileSync(lockPath(root), 'utf8'), other);
+});
+
+test('the lock is touched before each job', async () => {
+  const { root } = sealRepo();
+  write(root, 'docs/b.md', 'b');
+  const cfg = loadConfig(root);
+  const ages = [];
+  const run = async (job) => {
+    ages.push(Date.now() - statSync(lockPath(root)).mtimeMs);
+    const old = new Date(Date.now() - 600_000);
+    utimesSync(lockPath(root), old, old);
+    return fake()(job);
+  };
+  await reviewFiles(root, cfg, ['docs/guide.md', 'docs/b.md'], { run });
+  assert.equal(ages.length, 2);
+  assert.ok(ages[1] < 5000, `second job saw lock age ${ages[1]}`);
 });
