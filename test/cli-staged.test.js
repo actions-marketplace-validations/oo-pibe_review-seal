@@ -217,3 +217,43 @@ test('check --staged uses the working-tree config when the index has none yet', 
   assert.equal(r.code, 1);
   assert.match(r.err, /docs\/guide\.md \[consistency\]/);
 });
+
+test('a blocked commit still stages the reviews it has, and does not call a fresh file stale', () => {
+  const { root, git } = sealRepo();
+  write(root, 'docs/a.md', 'a\n'); write(root, 'docs/b.md', 'b\n');
+  assert.equal(run(root, ['review', 'docs/a.md', 'docs/b.md']).code, 0);
+  git('add', '-A'); git('commit', '-qm', 'init');
+  write(root, 'docs/a.md', 'a2\n'); write(root, 'docs/b.md', 'b2\n');
+  assert.equal(run(root, ['review', 'docs/a.md']).code, 0);
+  git('add', 'docs/a.md', 'docs/b.md');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /BLOCK  docs\/b\.md \[consistency\]/);
+  assert.doesNotMatch(r.err, /BLOCK  docs\/a\.md/);
+  assert.match(r.err, /review-seal review docs\/b\.md\n/);
+  const staged = JSON.parse(git('show', ':.seal/ledger.json'));
+  assert.equal(staged['docs/a.md'].consistency.contentHash, run(root, ['hash', 'docs/a.md']).out.trim());
+});
+
+test('a commit that passes with warnings still carries the reviews of its files', () => {
+  const { root, git } = sealRepo({ substantive: { lines: 8, patterns: ['\\bonly\\b'] } });
+  assert.equal(run(root, ['review', 'docs/guide.md']).code, 0);
+  git('add', '-A'); git('commit', '-qm', 'init');
+  write(root, 'docs/guide.md', 'Visitors can buy tickets with a passport. Bring a jacket.\n');
+  assert.equal(run(root, ['review', 'docs/guide.md']).code, 0);
+  git('add', 'docs/guide.md');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 0, r.err);
+  assert.doesNotMatch(r.err, /WARN/);
+  assert.match(r.err, /staged \.seal\/ledger\.json so this commit carries its reviews/);
+});
+
+test('a working-tree review of a different version is not staged', () => {
+  const { root, git } = sealRepo();
+  assert.equal(run(root, ['review', 'docs/guide.md']).code, 0);
+  write(root, 'docs/guide.md', 'Visitors need a tax number.\n');
+  git('add', 'docs/guide.md');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 1);
+  assert.throws(() => git('show', ':.seal/ledger.json'));
+});
