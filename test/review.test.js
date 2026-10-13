@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, mkdirSync, readFileSync, existsSync, utimesSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync, existsSync, utimesSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { statSync } from 'node:fs';
 import { sealRepo, write } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { loadLedger, validateEntry } from '../lib/ledger.js';
-import { reviewFiles, pendingJobs, drainInbox, STATE_DIR } from '../lib/review.js';
+import { reviewFiles, pendingJobs, drainInbox, appendInbox, STATE_DIR } from '../lib/review.js';
 
 const fake = (verdict = 'clean', findings = []) => async (job) => ({ ok: true, verdict: { file: job.file, pass: job.pass, contentHash: job.contentHash, rubricHash: job.rubricHash, verdict, findings } });
 
@@ -131,4 +131,53 @@ test('the lock is touched before each job', async () => {
   await reviewFiles(root, cfg, ['docs/guide.md', 'docs/b.md'], { run });
   assert.equal(ages.length, 2);
   assert.ok(ages[1] < 5000, `second job saw lock age ${ages[1]}`);
+});
+
+test('one job throwing does not lose the others; both outcomes reach the inbox', async () => {
+  const { root } = sealRepo();
+  write(root, 'docs/b.md', 'b');
+  const cfg = loadConfig(root);
+  let n = 0;
+  const run = async (job) => { if (++n === 2) throw new Error('kaput'); return fake()(job); };
+  const r = await reviewFiles(root, cfg, ['docs/guide.md', 'docs/b.md'], { run });
+  assert.equal(r.reviewed.length, 1);
+  assert.equal(r.failed.length, 1);
+  assert.equal(Object.keys(loadLedger(root, cfg)).length, 1);
+  const inbox = drainInbox(root);
+  assert.equal(inbox.length, 1);
+  assert.equal(inbox[0].error, 'kaput');
+});
+
+test('a file deleted during review is a failure, not a throw', async () => {
+  const { root } = sealRepo();
+  const cfg = loadConfig(root);
+  const run = async (job) => { unlinkSync(join(root, 'docs/guide.md')); return fake()(job); };
+  const r = await reviewFiles(root, cfg, ['docs/guide.md'], { run });
+  assert.match(r.failed[0].error, /removed during review/);
+  assert.match(drainInbox(root)[0].error, /removed during review/);
+});
+
+test('remaining counts distinct files', async () => {
+  const { root } = sealRepo({ maxFilesPerRun: 1 });
+  write(root, 'docs/b.md', 'b');
+  const r = await reviewFiles(root, loadConfig(root), ['docs/guide.md', 'docs/b.md'], { run: fake() });
+  assert.equal(r.remaining, 1);
+});
+
+test('items appended after a drain are not lost; a torn last line is skipped', () => {
+  const { root } = sealRepo();
+  appendInbox(root, [{ file: 'a' }, { file: 'b' }]);
+  const p = join(root, STATE_DIR, 'inbox.jsonl');
+  writeFileSync(p, readFileSync(p, 'utf8') + '{"file":"to');
+  assert.deepEqual(drainInbox(root).map((i) => i.file), ['a', 'b']);
+  appendInbox(root, [{ file: 'c' }]);
+  assert.deepEqual(drainInbox(root).map((i) => i.file), ['c']);
+  assert.deepEqual(drainInbox(root), []);
+  assert.deepEqual(readdirSync(join(root, STATE_DIR)).filter((f) => f.startsWith('inbox')), []);
+});
+
+test('state dir ignores itself', async () => {
+  const { root } = sealRepo();
+  await reviewFiles(root, loadConfig(root), ['docs/guide.md'], { run: fake() });
+  assert.equal(readFileSync(join(root, STATE_DIR, '.gitignore'), 'utf8'), '*\n');
 });
