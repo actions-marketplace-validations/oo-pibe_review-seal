@@ -113,3 +113,52 @@ test('without web tools the prompt asks for no sources', async () => {
   const { buildPrompt } = await import('../lib/reviewer.js');
   assert.doesNotMatch(buildPrompt({ file: 'a.md', pass: 'p', rubricPath: 'r', contentHash: 'x', rubricHash: 'y' }), /source URL/);
 });
+
+// An expired review of docs/guide.md, committed; returns the repo.
+function expiredRepo() {
+  const r = sealRepo({ substantive: { patterns: ['\\bonly\\b'] }, passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**/*.md'], maxAgeDays: 30 } } });
+  write(r.root, 'docs/guide.md', 'Visitors can buy tickets with a pasport.\n');
+  const text = readFileSync(join(r.root, 'docs/guide.md'), 'utf8');
+  const rubric = readFileSync(join(r.root, '.seal/rubrics/consistency.md'), 'utf8');
+  const old = makeEntry('docs/guide.md', 'consistency', { at: '2020-01-01', contentHash: contentHash(text), rubricHash: contentHash(rubric), verdict: 'clean', findings: [], reviewer: 'independent', via: 'agent' });
+  write(r.root, '.seal/ledger.json', JSON.stringify({ 'docs/guide.md': { consistency: old } }));
+  r.git('add', '-A'); r.git('commit', '-qm', 'init');
+  return r;
+}
+
+test('at commit time, expiry follows the change size: a typo fix only warns', () => {
+  const { root, git } = expiredRepo();
+  write(root, 'docs/guide.md', 'Visitors can buy tickets with a passport.\n');
+  git('add', '-A');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /WARN\s+docs\/guide\.md \[consistency\] reviewed 2020-01-01, older than 30 days; due for a fresh review/);
+});
+
+test('at commit time, a substantive edit to an expired file blocks', () => {
+  const { root, git } = expiredRepo();
+  write(root, 'docs/guide.md', 'Visitors can buy tickets with a passport.\nOnly residents may buy online.\n');
+  git('add', '-A');
+  const r = run(root, ['check', '--staged']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /BLOCK\s+docs\/guide\.md \[consistency\] reviewed 2020-01-01, older than 30 days/);
+});
+
+test('plain check keeps expiry a hard block', () => {
+  const { root } = expiredRepo();
+  for (const args of [['check'], ['check', 'docs/guide.md']]) {
+    const r = run(root, args);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.err, /BLOCK\s+docs\/guide\.md \[consistency\] reviewed 2020-01-01, older than 30 days/);
+  }
+});
+
+test('review --due or --all with files or --changed-since is bad usage', () => {
+  const { root, git } = sealRepo();
+  git('add', '-A'); git('commit', '-qm', 'init');
+  for (const args of [['review', '--due', 'docs/guide.md'], ['review', '--all', 'docs/guide.md'], ['review', '--due', '--changed-since', 'HEAD'], ['review', '--all', '--changed-since', 'HEAD']]) {
+    const r = run(root, args);
+    assert.equal(r.code, 2, args.join(' '));
+    assert.match(r.err, new RegExp(`use --${args.includes('--due') ? 'due' : 'all'} on its own, or name files`));
+  }
+});
