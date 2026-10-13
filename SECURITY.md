@@ -25,7 +25,7 @@ A cloned repository is not trusted, and neither is what the reviewer writes.
 
 Which paths are checklists or the ledger comes from the config at the base. A path that only the new config names, such as a covered page made the ledger, counts as both a settings change and content, so the change blocks.
 
-A merge is judged per side, against the merge base. A side whose commits each changed settings or content, but not both, passes. A side with one commit that changed both blocks the merge.
+A merge is judged per side, against the merge base. A side whose commits each changed settings or content, but not both, passes. A side with one commit that changed both blocks the merge. So does a resolution that changes both itself: the paths whose staged version differs from every side are judged like a commit, with checklists and the ledger taken from the sides' configs.
 
 ## Ledger merges
 

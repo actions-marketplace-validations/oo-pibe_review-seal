@@ -247,3 +247,21 @@ test('concluding a conflicted merge with git commit judges each side too', () =>
   assert.equal(c.code, 0, c.err);
   r.git('commit', '-qm', 'merge main');
 });
+
+test('what a merge resolution adds itself is judged too: settings and content changed in the resolution block', () => {
+  const r = base();
+  r.git('checkout', '-qb', 'feature');
+  r.git('branch', 'throwaway'); r.git('checkout', '-q', 'throwaway');
+  r.git('commit', '-q', '--allow-empty', '-m', 'empty');
+  r.git('checkout', '-q', 'feature');
+  r.git('merge', '-q', '--no-commit', '--no-ff', 'throwaway');
+  write(r.root, '.seal/config.json', JSON.stringify({ passes: { consistency: { rubric: RUBRIC, files: ['docs/guide.md'] } } }));
+  write(r.root, 'docs/secret.md', 'Unreviewed claims slipped in.\n');
+  r.git('add', '-A');
+  const c = staged(r);
+  assert.equal(c.code, 1, c.err);
+  assert.match(c.err, /review settings \(\.seal\/config\.json\)/);
+  // Content alone in the resolution is not a settings change.
+  r.git('checkout', 'HEAD', '--', '.seal/config.json');
+  assert.doesNotMatch(staged(r).err, /review settings/);
+});
