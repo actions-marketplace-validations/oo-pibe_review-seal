@@ -362,6 +362,16 @@ test('action, mode "due": the PR body is fenced safely and kept under GitHub\'s 
   assert.match(body, /log truncated; see the workflow run/);
 });
 
+test('action, mode "due": the PR body carries no control characters from the log', () => {
+  const r = dueRepo();
+  assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+  writeFileSync(join(runnerTemp.get(r.root), 'review-seal-due.log'), 'docs/guide.md [consistency] findings\n    L1: \x1b]0;pwned\x07red\x1b[31m\u202e x\r\nnext\n');
+  assert.equal(step(r.root, 'Open or update the pull request', r.env).code, 0);
+  const body = readFileSync(r.calls + '.body', 'utf8');
+  assert.match(body, /L1: \]0;pwnedred\[31m x\nnext\n/);
+  assert.doesNotMatch(body, /[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/);
+});
+
 test('action: the mode input says which permissions due mode needs', () => {
   const y = readFileSync(new URL('../action.yml', import.meta.url), 'utf8');
   const desc = y.split('\n  mode:\n')[1].split('\n  github-token:')[0];

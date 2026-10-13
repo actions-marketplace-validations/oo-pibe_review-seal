@@ -128,7 +128,8 @@ test('GitHub annotations escape their data and properties', () => {
   assert.equal(run(root, ['seal', 'docs/a,b:c.md', '--pass', 'consistency', '--reviewer', 'builder', '--verdict', 'findings', '--finding', 'L1: 50% off\nnext\rend']).code, 0);
   git('add', '-A');
   const r = run(root, ['check', '--staged'], { env: { GITHUB_ACTIONS: 'true' } });
-  assert.match(r.out, /^::warning file=docs\/a%2Cb%3Ac\.md,title=review-seal consistency::L1: 50%25 off%0Anext%0Dend$/m);
+  // Findings are stored on one line, so line breaks arrive as spaces; % is still escaped.
+  assert.match(r.out, /^::warning file=docs\/a%2Cb%3Ac\.md,title=review-seal consistency::L1: 50%25 off next end$/m);
 });
 
 test('the pre-commit hook falls back to the node that installed it', () => {
