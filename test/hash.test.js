@@ -18,11 +18,11 @@ test('normalize keeps inner blank lines', () => {
 });
 
 test('computeToken binds every field and sorts findings', () => {
-  const e = { contentHash: 'sha256:aaaaaaaaaaaaaaaa', rubricHash: 'sha256:bbbbbbbbbbbbbbbb', verdict: 'findings', findings: ['b', 'a'], reviewer: 'independent', via: 'agent' };
+  const e = { at: '2026-10-12', contentHash: 'sha256:aaaaaaaaaaaaaaaa', rubricHash: 'sha256:bbbbbbbbbbbbbbbb', verdict: 'findings', findings: ['b', 'a'], reviewer: 'independent', via: 'agent' };
   const t = computeToken('docs/x.md', 'consistency', e);
   assert.match(t, /^rv_[0-9a-f]{12}$/);
   assert.equal(computeToken('docs/x.md', 'consistency', { ...e, findings: ['a', 'b'] }), t);
-  for (const change of [{ verdict: 'clean' }, { reviewer: 'builder' }, { via: 'manual' }, { rubricHash: 'sha256:cccccccccccccccc' }, { contentHash: 'sha256:dddddddddddddddd' }, { findings: ['a'] }]) {
+  for (const change of [{ verdict: 'clean' }, { reviewer: 'builder' }, { via: 'manual' }, { rubricHash: 'sha256:cccccccccccccccc' }, { contentHash: 'sha256:dddddddddddddddd' }, { findings: ['a'] }, { at: '2020-01-01' }]) {
     assert.notEqual(computeToken('docs/x.md', 'consistency', { ...e, ...change }), t, JSON.stringify(change));
   }
   assert.notEqual(computeToken('docs/y.md', 'consistency', e), t);
