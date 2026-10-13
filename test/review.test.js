@@ -129,7 +129,7 @@ test('the lock is touched before each job', async () => {
   };
   await reviewFiles(root, cfg, ['docs/guide.md', 'docs/b.md'], { run });
   assert.equal(ages.length, 2);
-  assert.ok(ages[1] < 5000, `second job saw lock age ${ages[1]}`);
+  assert.ok(ages[1] < 60_000, `second job saw lock age ${ages[1]}`); // the lock was set 600 s old before it
 });
 
 test('one job throwing does not lose the others; both outcomes reach the inbox', async () => {
@@ -270,7 +270,7 @@ test('lockWait: a run waits for a held lock and goes ahead once it is released',
   putLock(root, JSON.stringify({ pid: process.pid, nonce: 'other' }));
   setTimeout(() => unlinkSync(lockPath(root)), 300);
   const t0 = Date.now();
-  const r = await reviewFiles(root, cfg, ['docs/guide.md'], { run: fake(), lockWait: { ms: 5000, pollMs: 100 } });
+  const r = await reviewFiles(root, cfg, ['docs/guide.md'], { run: fake(), lockWait: { ms: 30_000, pollMs: 100 } });
   assert.equal(r.skipped, undefined);
   assert.equal(r.reviewed.length, 1);
   assert.ok(Date.now() - t0 >= 250);

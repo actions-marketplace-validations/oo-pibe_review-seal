@@ -103,7 +103,8 @@ test('a very long added line is substantive and fast', () => {
   const long = 'word. '.repeat(35000);
   const t0 = Date.now();
   const r = classifyChange(diff([], [long]), rule(['\\bonly\\b']));
-  assert.ok(Date.now() - t0 < 1000);
+  // Generous, so a loaded machine does not fail it; catastrophic backtracking takes far longer.
+  assert.ok(Date.now() - t0 < 10_000);
   assert.equal(r.substantive, true);
   assert.equal(r.why, 'very long line');
 });

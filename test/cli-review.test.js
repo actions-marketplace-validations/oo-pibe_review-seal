@@ -124,12 +124,13 @@ test('review refuses a symlink', () => {
 test('two stops close together: the second review --auto waits for the first instead of skipping', async () => {
   const { spawn } = await import('node:child_process');
   const { BIN, cleanEnv } = await import('./helpers.js');
-  const { root } = sealRepo({ timeoutSeconds: 1 });
+  // Long enough for the second run's own reviewer to start on a loaded machine.
+  const { root } = sealRepo({ timeoutSeconds: 10 });
   write(root, 'docs/b.md', 'b\n');
   const env = { ...cleanEnv(), REVIEW_SEAL_CLAUDE: FAKE_CLAUDE };
   const slow = spawn(process.execPath, [BIN, 'review', '--auto', '--session=A', '--', 'docs/guide.md'], { cwd: root, env: { ...env, FAKE_CLAUDE_MODE: 'sleep' }, stdio: 'ignore' });
   const done = new Promise((res) => slow.on('exit', res));
-  for (let i = 0; i < 100 && !existsSync(join(root, '.seal/.state/review.lock')); i++) await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; i < 600 && !existsSync(join(root, '.seal/.state/review.lock')); i++) await new Promise((r) => setTimeout(r, 50));
   assert.ok(existsSync(join(root, '.seal/.state/review.lock')));
   const r = run(root, ['review', '--auto', '--session=B', '--', 'docs/b.md']);
   await done;

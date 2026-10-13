@@ -46,7 +46,7 @@ export function sealRepo(over = {}) {
 
 export function run(root, args, { env = {}, input, cwd = root } = {}) {
   const r = spawnSync(process.execPath, [BIN, ...args], {
-    cwd, encoding: 'utf8', input, timeout: 30_000,
+    cwd, encoding: 'utf8', input, timeout: 120_000,
     env: { ...cleanEnv(), REVIEW_SEAL_CLAUDE: FAKE_CLAUDE, ...env },
   });
   return { code: r.status, out: r.stdout, err: r.stderr };

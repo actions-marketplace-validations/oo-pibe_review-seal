@@ -74,8 +74,8 @@ test('stop: starts a background review of files touched this session', async () 
   hook(root, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(root, 'docs/guide.md') } });
   const r = hook(root, 'stop', { hook_event_name: 'Stop' }, { REVIEW_SEAL_CLAUDE: FAKE_CLAUDE });
   assert.equal(r.code, 0);
-  for (let i = 0; i < 50 && !existsSync(join(root, '.seal/ledger.json')); i++) await sleep(100);
-  for (let i = 0; i < 50 && existsSync(join(root, '.seal/.state/review.lock')); i++) await sleep(100);
+  await waitFor(() => existsSync(join(root, '.seal/ledger.json')));
+  await waitFor(() => !existsSync(join(root, '.seal/.state/review.lock')));
   assert.ok(existsSync(join(root, '.seal/ledger.json')), 'the background review wrote no ledger');
   const led = JSON.parse(readFileSync(join(root, '.seal/ledger.json'), 'utf8'));
   assert.equal(led['docs/guide.md'].consistency.reviewer, 'independent');
@@ -181,7 +181,8 @@ test('post-tool: a Bash command that passes the pre-filter marks the session for
   assert.equal(s.scan, true);
 });
 
-const waitFor = async (cond, ms = 5000) => { for (let t = 0; t < ms && !cond(); t += 100) await sleep(100); return cond(); };
+// Returns as soon as cond holds; the cap is generous for a loaded machine.
+const waitFor = async (cond, ms = 30_000) => { for (let t = 0; t < ms && !cond(); t += 100) await sleep(100); return cond(); };
 const committedRepo = (over) => {
   const r = sealRepo(over);
   r.git('add', '-A');

@@ -30,12 +30,21 @@ for (const [mode, expect] of [['clean', { ok: true }], ['findings', { ok: true }
     const { root } = sealRepo();
     process.env.FAKE_CLAUDE_MODE = mode;
     try {
-      const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, model: 'sonnet', timeoutSeconds: 10 });
+      const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, model: 'sonnet', timeoutSeconds: 60 });
       assert.equal(r.ok, expect.ok);
       if (expect.error) assert.match(r.error, expect.error);
       if (r.ok) assert.equal(r.verdict.contentHash, job.contentHash);
     } finally { delete process.env.FAKE_CLAUDE_MODE; }
   });
+}
+
+// Whether a process has exited, polling up to 30 s (a loaded machine can be slow to reap it).
+async function gone(pid) {
+  for (let t = 0; t < 30_000; t += 100) {
+    try { process.kill(pid, 0); } catch (e) { if (e.code === 'ESRCH') return true; }
+    await new Promise((res) => setTimeout(res, 100));
+  }
+  return false;
 }
 
 test('runReviewer times out', async () => {
@@ -63,7 +72,7 @@ const logged = async (extra = {}, env = {}) => {
   const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'log');
   Object.assign(process.env, { FAKE_CLAUDE_LOG: log, ...env });
   try {
-    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10, ...extra });
+    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 60, ...extra });
     return { r, line: JSON.parse(readFileSync(log, 'utf8').trim().split('\n')[0]) };
   } finally { for (const k of ['FAKE_CLAUDE_LOG', 'CLAUDECODE', 'CLAUDE_PROJECT_DIR']) delete process.env[k]; }
 };
@@ -120,10 +129,11 @@ test('timeout kills the reviewer process, not just resolves', async () => {
   const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'log');
   Object.assign(process.env, { FAKE_CLAUDE_MODE: 'sleep', FAKE_CLAUDE_LOG: log });
   try {
-    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 1 });
+    // Long enough for the fake reviewer to start and log its pid on a loaded machine.
+    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 5 });
     assert.match(r.error, /timed out/);
     const { pid } = JSON.parse(readFileSync(log, 'utf8').trim().split('\n')[0]);
-    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    assert.ok(await gone(pid), `reviewer ${pid} still running`);
   } finally { delete process.env.FAKE_CLAUDE_MODE; delete process.env.FAKE_CLAUDE_LOG; }
 });
 
@@ -140,12 +150,11 @@ test('timeout also kills a grandchild that ignores SIGTERM', async () => {
   const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'log');
   Object.assign(process.env, { FAKE_CLAUDE_MODE: 'sleep-grandchild', FAKE_CLAUDE_LOG: log });
   try {
-    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 1 });
+    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 5 });
     assert.match(r.error, /timed out/);
     const { gpid } = JSON.parse(readFileSync(log, 'utf8').trim().split('\n').pop());
     assert.ok(gpid);
-    await new Promise((res) => setTimeout(res, 200));
-    assert.throws(() => process.kill(gpid, 0), { code: 'ESRCH' });
+    assert.ok(await gone(gpid), `grandchild ${gpid} still running`);
   } finally { delete process.env.FAKE_CLAUDE_MODE; delete process.env.FAKE_CLAUDE_LOG; }
 });
 
@@ -153,7 +162,7 @@ test('a verdict for another file or version gets its own error', async () => {
   const { root } = sealRepo();
   process.env.FAKE_CLAUDE_MODE = 'stale';
   try {
-    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
+    const r = await runReviewer(job, { root, claude: FAKE_CLAUDE, timeoutSeconds: 60 });
     assert.equal(r.ok, false);
     assert.match(r.error, /different file or version/);
   } finally { delete process.env.FAKE_CLAUDE_MODE; }

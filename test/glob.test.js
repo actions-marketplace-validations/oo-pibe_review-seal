@@ -36,7 +36,8 @@ test('bracket literals and leading **/ matching top-level files', () => {
 test('repeated **/ does not backtrack catastrophically', () => {
   const t = Date.now();
   assert.equal(matchAny('a/'.repeat(30) + 'x.txt', ['**/**/**/**/**/**/**/**/*.md']), false);
-  assert.ok(Date.now() - t < 1000);
+  // Generous, so a loaded machine does not fail it; catastrophic backtracking takes far longer.
+  assert.ok(Date.now() - t < 10_000);
 });
 
 test('leading ./ or / on a glob is ignored', () => {

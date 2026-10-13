@@ -48,7 +48,7 @@ test('fact-check passes give the reviewer web tools, and only those', async () =
   const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
   process.env.FAKE_CLAUDE_LOG = log;
   try {
-    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222', tools: ['WebSearch', 'WebFetch'], fetchDomains: ['example.com', 'www.gov.uk'] }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
+    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222', tools: ['WebSearch', 'WebFetch'], fetchDomains: ['example.com', 'www.gov.uk'] }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 60 });
   } finally { delete process.env.FAKE_CLAUDE_LOG; }
   const { args } = JSON.parse(readFileSync(log, 'utf8').trim());
   const toolsAt = args.indexOf('--tools');
@@ -182,7 +182,7 @@ test('the reviewer is always denied secrets and git internals', async () => {
   const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
   process.env.FAKE_CLAUDE_LOG = log;
   try {
-    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222' }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
+    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222' }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 60 });
   } finally { delete process.env.FAKE_CLAUDE_LOG; }
   const { args } = JSON.parse(readFileSync(log, 'utf8').trim());
   const at = args.indexOf('--disallowedTools');
