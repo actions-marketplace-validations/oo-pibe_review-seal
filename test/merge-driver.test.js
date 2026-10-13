@@ -91,3 +91,101 @@ test('install-hook does not add the .gitattributes line twice', () => {
   run(root, ['install-hook']);
   assert.equal(readFileSync(join(root, '.gitattributes'), 'utf8').match(/merge=review-seal/g).length, 1);
 });
+
+test('merge-driver is three-way: a side left as it was at the base takes the other side, whatever the dates', () => {
+  const { root } = sealRepo();
+  const old = e('docs/x.md', '2026-02-01', { contentHash: H('1') });
+  const newer = e('docs/x.md', '2026-02-01', { contentHash: H('2') });
+  const older = e('docs/x.md', '2026-01-15', { contentHash: H('3') });
+  const base = { 'docs/x.md': { consistency: old } };
+  // Ours unchanged since the base: theirs wins on a tie and even when older.
+  for (const theirs of [newer, older]) {
+    const a = tmp(base);
+    assert.equal(run(root, ['merge-driver', tmp(base), a, tmp({ 'docs/x.md': { consistency: theirs } })]).code, 0);
+    assert.equal(JSON.parse(readFileSync(a, 'utf8'))['docs/x.md'].consistency.contentHash, theirs.contentHash);
+  }
+  // Theirs unchanged since the base: ours wins.
+  for (const ours of [newer, older]) {
+    const a = tmp({ 'docs/x.md': { consistency: ours } });
+    assert.equal(run(root, ['merge-driver', tmp(base), a, tmp(base)]).code, 0);
+    assert.equal(JSON.parse(readFileSync(a, 'utf8'))['docs/x.md'].consistency.contentHash, ours.contentHash);
+  }
+  // Both changed: the later review, a tie keeps ours.
+  const later = e('docs/x.md', '2026-03-01', { contentHash: H('4') });
+  const a = tmp({ 'docs/x.md': { consistency: newer } });
+  run(root, ['merge-driver', tmp(base), a, tmp({ 'docs/x.md': { consistency: later } })]);
+  assert.equal(JSON.parse(readFileSync(a, 'utf8'))['docs/x.md'].consistency.contentHash, later.contentHash);
+  const t = tmp({ 'docs/x.md': { consistency: newer } });
+  run(root, ['merge-driver', tmp(base), t, tmp({ 'docs/x.md': { consistency: e('docs/x.md', '2026-02-01', { contentHash: H('5') }) } })]);
+  assert.equal(JSON.parse(readFileSync(t, 'utf8'))['docs/x.md'].consistency.contentHash, newer.contentHash);
+});
+
+// Same-day reviews on both branches: each branch changed and reviewed a different page.
+test('a merge of same-day reviews of different pages keeps each branch\'s review (p1-merge)', () => {
+  const { root, git } = sealRepo();
+  run(root, ['install-hook']);
+  write(root, 'docs/a.md', 'A one.\n'); write(root, 'docs/b.md', 'B one.\n');
+  run(root, ['review', 'docs/a.md', 'docs/b.md', 'docs/guide.md']);
+  git('add', '-A'); git('commit', '-qm', 'base');
+  git('switch', '-qc', 'feat');
+  write(root, 'docs/a.md', 'A two.\n'); run(root, ['review', 'docs/a.md']);
+  git('add', '-A'); git('commit', '-qm', 'feat a2');
+  git('switch', '-q', 'main');
+  write(root, 'docs/b.md', 'B two.\n'); run(root, ['review', 'docs/b.md']);
+  git('add', '-A'); git('commit', '-qm', 'main b2');
+  git('merge', '-q', '--no-edit', 'feat');
+  const c = run(root, ['check']);
+  assert.equal(c.code, 0, c.err);
+  assert.equal(git('status', '--porcelain').trim(), '');
+});
+
+test('a rebase of two same-day reviews of one page keeps the review of the text that lands (rebase-tie)', () => {
+  const { root, git } = sealRepo();
+  run(root, ['install-hook']);
+  write(root, 'docs/x.md', 'x1\n'); write(root, 'docs/y.md', 'y1\n');
+  run(root, ['review', 'docs/x.md', 'docs/y.md', 'docs/guide.md']);
+  git('add', '-A'); git('commit', '-qm', 'init');
+  git('switch', '-qc', 'topic');
+  write(root, 'docs/x.md', 'x2\n'); run(root, ['review', 'docs/x.md']); git('commit', '-qam', 'x2');
+  write(root, 'docs/x.md', 'x3\n'); run(root, ['review', 'docs/x.md']); git('commit', '-qam', 'x3');
+  git('switch', '-q', 'main');
+  write(root, 'docs/y.md', 'y2\n'); run(root, ['review', 'docs/y.md']); git('commit', '-qam', 'main: y2');
+  git('switch', '-q', 'topic');
+  git('rebase', '-q', 'main');
+  const c = run(root, ['check']);
+  assert.equal(c.code, 0, c.err);
+});
+
+// A ledger entry with a chosen date, for a file's current text, recomputing the token.
+function dated(root, file, at) {
+  const l = JSON.parse(readFileSync(join(root, '.seal/ledger.json'), 'utf8'));
+  const { token, ...fields } = l[file].consistency;
+  l[file].consistency = makeEntry(file, 'consistency', { ...fields, at });
+  writeFileSync(join(root, '.seal/ledger.json'), serializeLedger(l));
+}
+
+test('a merge keeps the merged branch\'s review of the new text over a later renewal of the old text', () => {
+  for (const [ours, theirs] of [['2026-10-04', '2026-10-03'], ['2026-10-03', '2026-10-03']]) {
+    const { root, git } = sealRepo();
+    run(root, ['install-hook']);
+    write(root, 'docs/x.md', 'Old text.\n'); run(root, ['review', 'docs/x.md', 'docs/guide.md']); dated(root, 'docs/x.md', '2026-10-01');
+    git('add', '-A'); git('commit', '-qm', 'init');
+    git('switch', '-qc', 'feat');
+    write(root, 'docs/x.md', 'New text.\n'); run(root, ['review', 'docs/x.md']); dated(root, 'docs/x.md', theirs);
+    git('add', '-A'); git('commit', '-qm', 'feat');
+    const fresh = JSON.parse(readFileSync(join(root, '.seal/ledger.json'), 'utf8'))['docs/x.md'].consistency;
+    git('switch', '-q', 'main');
+    // A renewal of the old text on main (review --due), dated later or the same day.
+    dated(root, 'docs/x.md', ours);
+    git('add', '-A'); git('commit', '-qm', 'renewal');
+    // git merge writes its tree before pre-merge-commit runs, so the hook stages the review and stops the merge;
+    // git commit finishes it with the review.
+    assert.throws(() => git('merge', '-q', '--no-edit', 'feat'), /run git commit to finish the merge/);
+    git('commit', '-q', '--no-edit');
+    assert.match(git('log', '-1', '--format=%s'), /^Merge branch 'feat'/);
+    assert.deepEqual(JSON.parse(git('show', 'HEAD:.seal/ledger.json'))['docs/x.md'].consistency, fresh);
+    const c = run(root, ['check']);
+    assert.equal(c.code, 0, c.err);
+    assert.equal(git('status', '--porcelain').trim(), '');
+  }
+});
