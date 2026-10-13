@@ -181,22 +181,16 @@ runs:
         LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
         START="$(git symbolic-ref -q --short HEAD || true)"
         BODY="$RUNNER_TEMP/review-seal-pr.md"
+        # The body lists every review the branch renews against this branch's ledger, so findings from earlier
+        # runs stay visible when a later run edits it, then this run's log.
+        git show "HEAD:${LEDGER}" > "$RUNNER_TEMP/review-seal-base-ledger.json" 2>/dev/null || : > "$RUNNER_TEMP/review-seal-base-ledger.json"
         node --input-type=module -e '
           import fs from "node:fs";
           import { pathToFileURL } from "node:url";
-          const { sanitizeText } = await import(pathToFileURL(process.env.GITHUB_ACTION_PATH + "/lib/text.js"));
-          let log = "";
-          try { log = fs.readFileSync(process.argv[1], "utf8"); } catch {}
-          // Each line of the log is shown as text, never as terminal control sequences.
-          log = log.split(/\r?\n/).map(sanitizeText).join("\n");
-          const max = 60000;
-          const cut = log.length > max;
-          if (cut) log = log.slice(0, max);
-          const longest = Math.max(0, ...(log.match(/~+/g) || []).map((r) => r.length));
-          const fence = "~".repeat(Math.max(3, longest + 1));
-          const end = log.endsWith("\n") || !log ? "" : "\n";
-          process.stdout.write("Scheduled re-review of files that were stale or past their shelf life.\n\n" + fence + "\n" + log + end + fence + "\n" + (cut ? "\nlog truncated; see the workflow run\n" : ""));
-        ' "$RUNNER_TEMP/review-seal-due.log" > "$BODY"
+          const { dueBody } = await import(pathToFileURL(process.env.GITHUB_ACTION_PATH + "/lib/due.js"));
+          const read = (p) => { try { return fs.readFileSync(p, "utf8"); } catch { return ""; } };
+          process.stdout.write(dueBody({ log: read(process.argv[1]), baseLedger: read(process.argv[2]), newLedger: read(process.argv[3]) }));
+        ' "$RUNNER_TEMP/review-seal-due.log" "$RUNNER_TEMP/review-seal-base-ledger.json" "$LEDGER" > "$BODY"
         # A pull request someone closed without merging means "stop": nothing is committed or pushed until the branch is
         # deleted. A merged one is done with, so a new pull request starts.
         STATE=""

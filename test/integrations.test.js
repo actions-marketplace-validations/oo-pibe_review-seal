@@ -397,6 +397,27 @@ test('action, mode "due": the PR body is fenced safely and kept under GitHub\'s 
   assert.match(body, /log truncated; see the workflow run/);
 });
 
+test('action, mode "due": the PR body keeps earlier runs\' findings when a later run edits it', () => {
+  const r = dueRepo();
+  assert.equal(step(r.root, 'Re-review what is due', { ...r.env, FAKE_CLAUDE_MODE: 'findings' }).code, 0);
+  assert.equal(step(r.root, 'Open or update the pull request', r.env).code, 0);
+  const first = readFileSync(r.calls + '.body', 'utf8');
+  assert.match(first, /docs\/guide\.md \[consistency\] findings \(reviewed \d{4}-\d{2}-\d{2}\)\n {4}L1: says passport here, tax number elsewhere/);
+  // A week later another file is due; the run reviews only that one and edits the open pull request.
+  r.git('checkout', '-q', 'main');
+  write(r.root, 'docs/new.md', 'A new page.\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'new page'); r.git('push', '-q', 'origin', 'main');
+  assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
+  assert.equal(step(r.root, 'Open or update the pull request', r.env).code, 0);
+  assert.match(readFileSync(r.calls, 'utf8'), /^pr edit review-seal\/scheduled --body-file /m);
+  const body = readFileSync(r.calls + '.body', 'utf8');
+  assert.match(body, /Reviews this pull request renews \(2\)/);
+  assert.match(body, /docs\/guide\.md \[consistency\] findings[^\n]*\n {4}L1: says passport here, tax number elsewhere/);
+  assert.match(body, /docs\/new\.md \[consistency\] clean/);
+  assert.match(body, /Log of the latest run:\n\n~~~\n[\s\S]*reviewing docs\/new\.md/);
+  assert.doesNotMatch(body.split('Log of the latest run')[1], /reviewing docs\/guide\.md/);
+});
+
 test('action, mode "due": the PR body carries no control characters from the log', () => {
   const r = dueRepo();
   assert.equal(step(r.root, 'Re-review what is due', r.env).code, 0);
