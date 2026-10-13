@@ -72,3 +72,10 @@ test('saveLedger leaves no temp file behind', () => {
   saveLedger(root, { ledger: 'l.json' }, { 'a.md': { p: { x: 1 } } });
   assert.deepEqual(readdirSync(root), ['l.json']);
 });
+
+test('saveLedger does not use a fixed temp name', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rs-led-'));
+  mkdirSync(join(root, 'l.json.tmp'));
+  saveLedger(root, { ledger: 'l.json' }, { 'a.md': { p: { x: 1 } } });
+  assert.deepEqual(readdirSync(root).sort(), ['l.json', 'l.json.tmp']);
+});
