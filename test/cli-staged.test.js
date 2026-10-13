@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, mkdtempSync, copyFileSync, chmodSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, copyFileSync, chmodSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sealRepo, run, write } from './helpers.js';
@@ -160,4 +160,16 @@ test('under pre-commit, a block tells the user to stage the ledger (pre-commit h
   const plain = run(root, ['check', '--staged']);
   assert.equal(plain.code, 1);
   assert.doesNotMatch(plain.err, /git add \.seal\/ledger\.json/);
+});
+
+test('the hook blocks a commit that replaces a covered symlink with an unreviewed file', () => {
+  const { root, git } = sealRepo();
+  assert.equal(run(root, ['install-hook']).code, 0);
+  assert.equal(run(root, ['review', 'docs/guide.md']).code, 0);
+  symlinkSync('guide.md', join(root, 'docs/link.md'));
+  git('add', '-A'); git('commit', '-qm', 'base');
+  unlinkSync(join(root, 'docs/link.md'));
+  write(root, 'docs/link.md', 'Visitors need nothing at all.\n');
+  git('add', '-A');
+  assert.throws(() => git('commit', '-qm', 'swap'), /docs\/link\.md/);
 });

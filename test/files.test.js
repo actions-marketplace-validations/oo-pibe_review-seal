@@ -101,3 +101,15 @@ test('stagedFiles and changedSince skip symlinks', () => {
   git('commit', '-qm', 'more');
   assert.deepEqual(changedSince(root, 'HEAD~1'), ['docs/real.md']);
 });
+
+test('stagedFiles and changedSince include a symlink replaced by a regular file', () => {
+  const { root, git } = sealRepo();
+  symlinkSync('guide.md', join(root, 'docs/link.md'));
+  git('add', '-A'); git('commit', '-qm', 'init');
+  rmSync(join(root, 'docs/link.md'));
+  write(root, 'docs/link.md', 'Visitors need nothing at all.\n');
+  git('add', '-A');
+  assert.deepEqual(stagedFiles(root), ['docs/link.md']);
+  git('commit', '-qm', 'swap', '--no-verify');
+  assert.deepEqual(changedSince(root, 'HEAD~1'), ['docs/link.md']);
+});
