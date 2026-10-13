@@ -6,6 +6,18 @@ What counts: anything that lets a hook or the reviewer write anything other than
 
 What does not: forging a seal. The ledger token detects hand edits; it is not a signature, and the README's ledger section says so.
 
+## Text from the repository and the reviewer
+
+A cloned repository is not trusted, and neither is what the reviewer writes.
+
+- Checklist text is never sent into your Claude session. When Claude edits a covered file, the plugin names the checklist file the reviewer will use (its path only). The reviewer reads the checklist itself, in its own read-only session.
+- Reviewer output and ledger text are sanitised. Findings are stored on one line with control characters (including ANSI and OSC escape sequences) and bidirectional-override characters removed. Everything review-seal prints from the ledger, file names or reviewer errors is sanitised again, because a repository can ship a ledger written by anyone.
+- On GitHub Actions, nothing review-seal prints from that text can become a workflow command: no such line starts with `::`, and the legacy `##[` form is broken up. The only command it prints on purpose is the `::warning` annotation for an open finding, with its data escaped.
+
+## A change cannot narrow its own coverage
+
+`check --staged` compares the config being committed with the one at `HEAD`, and `check --changed-since <ref>` compares the branch's config with the one at the merge base. If the change drops a pass, leaves a file that was covered no longer covered, moves the ledger, or points a pass at a different checklist, the check blocks. A change that touches only files under `.seal/` is allowed, so a config change can still be made in a commit (or pull request) of its own, where people can review it.
+
 ## What the reviewer can reach
 
 The reviewer is a headless Claude Code session run with `--safe-mode --restricted --strict-mcp-config`.

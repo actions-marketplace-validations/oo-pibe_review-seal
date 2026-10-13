@@ -154,7 +154,7 @@ The `substantive` rules apply only to the commit hook (`check --staged`). Every 
     review-seal hash <file>                 print a file's content hash
     review-seal ledger-path                 print the ledger's path from the config
 
-`--changed-since <ref>` takes the files changed between the merge base with `<ref>` and `HEAD`. `check --staged` reads the config and checklists from the git index, so an edit to them that is not staged does not change what the commit is checked against. `install-hook` refuses to write into a hooks directory outside the repository (a shared `core.hooksPath`) unless you pass `--force`. `seal --reviewer independent` accepts only a verdict produced for the current version of the file and checklist.
+`--changed-since <ref>` takes the files changed between the merge base with `<ref>` and `HEAD`. `check --staged` reads the config and checklists from the git index, so an edit to them that is not staged does not change what the commit is checked against. `check --staged` and `check --changed-since` also block a change that narrows coverage against the config it started from (a dropped pass, a file no longer covered, a moved ledger, a renamed checklist), unless the change touches nothing outside `.seal/`: make config changes in a commit of their own. `install-hook` refuses to write into a hooks directory outside the repository (a shared `core.hooksPath`) unless you pass `--force`. `seal --reviewer independent` accepts only a verdict produced for the current version of the file and checklist.
 
 Exit codes:
 
