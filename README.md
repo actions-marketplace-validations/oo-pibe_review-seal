@@ -24,7 +24,7 @@ Needs Node 20 or later, git 2.24 or later, and [Claude Code](https://code.claude
 
     npm install -D review-seal
     npx review-seal init          # .seal/config.json, a starter checklist, an empty ledger
-    npx review-seal install-hook  # git pre-commit hook
+    npx review-seal install-hook  # git hooks and the ledger merge driver
 
 `init` covers `docs/**/*.md` with one pass called `review` and adds `.seal/.state/` to `.gitignore`. Point `files` at what needs review.
 
@@ -35,7 +35,7 @@ Then add the Claude Code plugin so reviews run on their own:
 
 Reviews use the `claude` command you already have, signed in as you. Each one is a short headless session that can only read (Read, Grep, Glob, plus web lookups if a pass turns them on). A file is reviewed again only when it or its checklist changes, or when its review expires. On the default Sonnet model each file review cost about 4 to 7 cents in our tests.
 
-If `install-hook` finds husky, lefthook or a `.pre-commit-config.yaml`, it prints what to add instead of writing `.git/hooks`. With husky or lefthook, run `review-seal check --staged` from your pre-commit hook. For pre-commit, see [pre-commit](#pre-commit) below.
+`install-hook` writes two git hooks with the same check: `pre-commit`, and `pre-merge-commit`, which is the hook git runs for a merge that needs no conflict resolution. It also sets up the ledger's merge driver (see [Branches, merges and rebases](#branches-merges-and-rebases)). If it finds husky, lefthook or a `.pre-commit-config.yaml`, it prints what to add instead of writing `.git/hooks`. With husky or lefthook, run `review-seal check --staged` from both your pre-commit and pre-merge-commit hooks. For pre-commit, see [pre-commit](#pre-commit) below.
 
 To try it without installing anything, see [example/README.md](example/README.md) (two minutes).
 
@@ -44,7 +44,7 @@ To try it without installing anything, see [example/README.md](example/README.md
 1. Claude edits `docs/tickets.md`. The plugin tells it the review is now out of date. The first time a session touches a file in a pass, it also tells Claude which checklist that pass uses (the path only; the checklist's text never goes into the session).
 2. Claude finishes its turn. The reviewer starts in the background, and the session doesn't wait.
 3. The verdict lands in `.seal/ledger.json`. If there were findings, or a review could not run, Claude sees that when you send your next message.
-4. You commit. The hook checks every staged covered file against the ledger, using the ledger as staged. If the review ran but the ledger isn't staged, the plain git hook stages the reviews for the files in that commit.
+4. You commit. The hook checks every staged covered file against the ledger, using the ledger as staged. If the review ran but the ledger isn't staged, the plain git hook stages the reviews for the files in that commit, as long as they reviewed exactly the staged version. It does this even when another file blocks the commit, so the block lists only the files that really need a review.
 
 `review-seal list` shows every covered file, the state of each pass (`fresh`, `STALE`, `EXPIRED` or `never reviewed`), and how many reviews on record were independent and how many were by the builder.
 
@@ -60,7 +60,7 @@ A page can go out of date without anyone touching it, when a price or a rule cha
 
 `review-seal review --due` re-reviews every covered file that is stale, never reviewed or past its shelf life. `review-seal check` with no arguments exits 1 when any covered file's review is missing, out of date or expired, so it works as a freshness report.
 
-At commit time, an expired review blocks only when the staged change to that file is substantive (see `substantive` below). A smaller edit gets a warning. Files you don't commit are never blocked by their own expiry.
+At commit time, an expired review blocks only when the file has changed substantively since the version that was reviewed (see `substantive` below). A smaller edit gets a warning. Files you don't commit are never blocked by their own expiry.
 
 ### On a schedule with GitHub Actions
 
@@ -126,7 +126,7 @@ It updates the ledger in place. Commit it yourself.
 | `passes.<p>.fetchDomains` | `[]` | Exact hostnames WebFetch may open. Required with WebFetch, and allowed only with it. No wildcards. |
 | `autoReview` | `"stop"` | `"stop"`: review when Claude finishes a turn. `"commit"`: also review inside the pre-commit hook, for commits made outside Claude. `"off"`: only when you run `review-seal review`. |
 | `independentFrom` | `null` | A `YYYY-MM-DD` date. Reviews recorded by the builder on or after it block. |
-| `substantive.lines` | `8` | With patterns set, a staged change touching this many lines always needs a fresh review. |
+| `substantive.lines` | `8` | With patterns set, a file whose staged version differs from its reviewed version in this many lines always needs a fresh review. |
 | `substantive.patterns` | `[]` | Case-insensitive regular expressions for claims. With none, every change needs a fresh review. With some, a smaller change needs one only if it adds a match or edits a sentence that contains one; otherwise the commit goes through with a warning. |
 | `blockOnFindings` | `false` | Findings don't block by default. They are shown to Claude, printed as `FLAG` lines by `check` and the commit hook, and added as warnings on GitHub pull requests. Set `true` to block instead. |
 | `maxFilesPerRun` | `5` | How many files one automatic review run takes on. Runs you start by hand have no cap. |
@@ -134,7 +134,7 @@ It updates the ledger in place. Commit it yourself.
 | `timeoutSeconds` | `300` | Time limit for one review, from 1 to 1800. |
 | `ledger` | `".seal/ledger.json"` | Where the ledger lives, inside the repository. |
 
-The `substantive` rules apply only to the commit hook (`check --staged`). Every other check treats any change as needing a review. Whitespace at the ends of lines, line endings and blank lines at the start or end of a file don't change its hash. A file that is not valid UTF-8 is hashed byte for byte.
+The `substantive` rules apply only to the commit hook (`check --staged`), and only to a file that has a review on record: a file that was never reviewed always blocks, whatever the size of the change. The change is measured from the version the review read, not from the last commit, so a run of small commits cannot drift a file away from what was reviewed: once the total passes the threshold, the next commit blocks. When the reviewed version is not in the repository (see the ledger's `reviewedBlob` below), any change counts as substantive. Every other check treats any change as needing a review. Whitespace at the ends of lines, line endings and blank lines at the start or end of a file don't change its hash. A file that is not valid UTF-8 is hashed byte for byte.
 
 ## Commands
 
@@ -147,21 +147,24 @@ The `substantive` rules apply only to the commit hook (`check --staged`). Every 
     review-seal check [--staged | --changed-since <ref> | <files…>]
                                             exit 1 if a covered file lacks a fresh review
     review-seal list                        every covered file and its review status
+    review-seal prune                       remove ledger entries for files that are gone or no longer covered
     review-seal seal <file> --pass <p> --reviewer builder --verdict clean|findings [--finding "…"]
     review-seal seal <file> --pass <p> --reviewer independent --evidence <verdict.json>
                                             record a review by hand
-    review-seal install-hook [--force]      add the git pre-commit hook
+    review-seal install-hook [--force]      add the git pre-commit and pre-merge-commit hooks
     review-seal hash <file>                 print a file's content hash
     review-seal ledger-path                 print the ledger's path from the config
 
-`--changed-since <ref>` takes the files changed between the merge base with `<ref>` and `HEAD`. `check --staged` reads the config and checklists from the git index, so an edit to them that is not staged does not change what the commit is checked against. `check --staged` and `check --changed-since` also block a change that narrows coverage against the config it started from (a dropped pass, a file no longer covered, a moved ledger, a renamed checklist), unless the change touches nothing outside `.seal/`: make config changes in a commit of their own. `install-hook` refuses to write into a hooks directory outside the repository (a shared `core.hooksPath`) unless you pass `--force`. `seal --reviewer independent` accepts only a verdict produced for the current version of the file and checklist.
+`--changed-since <ref>` takes the files changed between the merge base with `<ref>` and `HEAD`. `check --staged` reads the config and checklists from the git index, so an edit to them that is not staged does not change what the commit is checked against. `check --staged` and `check --changed-since` also block a change that edits the review settings (`.seal/config.json` or any checklist) together with content, meaning any path outside `.seal/` that is not a checklist or the ledger. Commit settings changes on their own, where people can review them as such. A repository whose base has no config yet is exempt, so setting review-seal up in the same commit as other work is fine. `install-hook` refuses to write into a hooks directory outside the repository (a shared `core.hooksPath`) unless you pass `--force`. `seal --reviewer independent` accepts only a verdict produced for the current version of the file and checklist.
+
+A file that was renamed or moved keeps its review: when `review` finds that the exact same text was reviewed against the same checklist under a name that no longer exists, it moves that review to the new name instead of paying for a new one. `review-seal prune` removes reviews of files that no longer exist or that no pass covers any more, and prints each one it removed.
 
 Exit codes:
 
 | Code | Meaning |
 |---|---|
 | 0 | OK |
-| 1 | `check`: a covered file needs a review. `review`: a review failed, or another review was already running. |
+| 1 | `check`: a covered file needs a review. `review`: a review failed, or another review was already running (the message names the command to run again). |
 | 2 | Bad usage, config or ledger |
 | 3 | `seal` refused the evidence |
 
@@ -175,9 +178,21 @@ For [pre-commit](https://pre-commit.com), add to `.pre-commit-config.yaml`:
         hooks:
           - id: review-seal
 
+To guard merges too, also run `pre-commit install --hook-type pre-merge-commit`.
+
 The hook needs Node 20 or later on your `PATH`. pre-commit installs nothing for it: it is a `language: script` hook that runs `bin/review-seal.js check --staged` from its own checkout of this repository. It doesn't use `language: node` because npm 11 refuses the git install pre-commit runs for node hooks (`EALLOWGIT`).
 
 Stage the ledger with your change (`git add .seal/ledger.json`). pre-commit stashes unstaged changes before hooks run, so a review recorded but not staged is hidden from the check. When that blocks a commit, the message says so. The plain git hook from `install-hook` doesn't have this problem: it stages the reviews for that commit's files itself.
+
+## Branches, merges and rebases
+
+Two branches that each record reviews change the ledger in the same place, which git would report as a conflict on every merge and rebase. `install-hook` sets up a merge driver so git resolves the ledger by itself:
+
+- It adds `.seal/ledger.json merge=review-seal` to `.gitattributes` (with your configured ledger path), if the line is not already there. Commit `.gitattributes`.
+- It sets `merge.review-seal.name` and `merge.review-seal.driver` in the repository's own git config. That config is not shared through git, so everyone who clones the repository runs `review-seal install-hook` once.
+- The driver is `review-seal merge-driver %O %A %B` (found in `node_modules/.bin`, then on `PATH`, then at the path `install-hook` ran from). It keeps the reviews from both sides. Where both have a review of the same file and pass, the later one wins, and on the same day your side's. A review one side pruned stays pruned if the other side left it as it was. Entries that fail their token check are dropped. If either side is not valid JSON, the driver leaves git's normal conflict for you to resolve.
+
+A merge that needs no conflict resolution runs the `pre-merge-commit` hook, which `install-hook` writes, so it is checked like any commit. A merge with conflicts is checked by `pre-commit` when you commit the resolution. Rebases, cherry-picks and `git am` run neither hook (see [Limits](#limits)).
 
 ## GitHub pull requests
 
@@ -234,12 +249,14 @@ Inputs:
         ],
         "reviewer": "independent",
         "via": "agent",
+        "reviewedBlob": "3b18e512dba79e4c8300dd08aeb37f8e728b8dad",
         "token": "rv_6b4e8214c1d6"
       }
     }
 
 - `at` is the review date (UTC). `contentHash` and `rubricHash` identify the file and checklist versions it read.
 - `reviewer` is `independent` or `builder`. `via` is `agent` for the automatic reviewer and evidence-backed seals, `manual` for builder seals.
+- `reviewedBlob` is the git object id of the exact bytes the reviewer read, stored in the repository's object database when the review is recorded (`git hash-object -w`). The commit hook measures later edits against it. Entries written before this field existed have none and stay valid; for them the hook compares with `HEAD` when `HEAD` holds the reviewed text, and otherwise treats any change as substantive.
 - `token` is a hash over the file path, the pass name and every other field, `at` included. Edit any of them by hand and the entry stops counting until the file is reviewed again. The token is a plain hash anyone can recompute, so it detects edits, not forgery.
 
 Commit the ledger. It is the review history of every covered file, kept next to the files. Keys are sorted so diffs stay small.
@@ -256,7 +273,10 @@ Commit the ledger. It is the review history of every covered file, kept next to 
 - Findings sent to Claude are capped at 300 characters each, 20 per file and 8,000 characters per message, and framed as claims for Claude to check. Findings from a review you run by hand reach the next Claude Code session in that repository too.
 - The reviewer runs with `--safe-mode --restricted --strict-mcp-config`, read-only tools and deny rules for `.git` and common secret files. In one round of tests on Claude Code 2.1.251, reads of `.git` and a WebFetch to a host outside `fetchDomains` were denied when tried directly with these flags, and a repository `CLAUDE.md` telling the reviewer to answer "clean" did not change its verdict. Treat these as layered defences verified on that version. They are not guarantees. An older Claude Code that lacks these flags fails with a message asking you to update. See [SECURITY.md](SECURITY.md).
 - Reviews run on the working copy, so a file staged only in part can't be reviewed for that commit. Stage the whole file.
-- Git does not run the pre-commit hook during rebase, cherry-pick or am, so those can record versions nobody reviewed. Run review-seal check in CI as the backstop.
+- Git does not run the pre-commit or pre-merge-commit hook during rebase, cherry-pick or am, so those can record versions nobody reviewed. Run review-seal check in CI as the backstop.
+- A version that was reviewed but never committed exists only as a loose git object, which `git gc` deletes after about two weeks (`gc.pruneExpire`). After that, any edit to that file counts as substantive at commit time until it is reviewed again. A reviewed version that was committed, or that came from another clone in a commit, stays available.
+- When Claude finishes turns in two sessions close together, the second automatic review waits for the first, checking every 2 seconds for up to `timeoutSeconds` plus 60 seconds. If the first is still running by then, the second session is told on its next message which `review-seal review` command to run.
+- `.seal/.state/review.log`, the log of automatic reviews, keeps its last 128 KB once it passes 256 KB.
 - For `git commit <path>`, the hook stages the ledger into both indexes git uses during that commit. This is tested on git 2.50 and relies on long-stable git behaviour.
 - git 2.24 or later is needed (`--end-of-options`).
 - `review-by` dates, `independentFrom` and review dates are UTC days.
