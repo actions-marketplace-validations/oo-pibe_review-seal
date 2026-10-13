@@ -81,3 +81,20 @@ test('a claim moved verbatim to another line is trivial', () => {
   const r = classifyChange(diff([claim + ' The ground is near the river.'], ['The ground is near the river.', claim]), rule(['\\bonly\\b']));
   assert.equal(r.substantive, false);
 });
+
+test('abbreviations and decimals do not end a sentence', () => {
+  const sub = (a, b) => classifyChange(diff([a], [b]), rule(['\\bonly\\b'])).substantive;
+  assert.equal(sub('The only U.S. team to win it twice.', 'The only U.S. team to win it three times.'), true);
+  assert.equal(sub('Only 2.5 goals a game.', 'Only 2.9 goals a game.'), true);
+  assert.equal(sub('The only club near St. Pauli church.', 'The only club near St. Michael church.'), true);
+});
+
+test('appending after a full sentence is trivial even with an abbreviation', () => {
+  const before = 'They are the only club to win it twice.';
+  assert.equal(classifyChange(diff([before], [before + ' Visit St. Pauli.']), rule(['\\bonly\\b'])).substantive, false);
+});
+
+test('narrowing a claim without closing punctuation is substantive', () => {
+  const r = classifyChange(diff(['They are the only club in Hamburg to win it'], ['They are the only club in Hamburg']), rule(['\\bonly\\b']));
+  assert.equal(r.substantive, true);
+});
