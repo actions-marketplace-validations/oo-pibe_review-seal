@@ -98,3 +98,12 @@ test('narrowing a claim without closing punctuation is substantive', () => {
   const r = classifyChange(diff(['They are the only club in Hamburg to win it'], ['They are the only club in Hamburg']), rule(['\\bonly\\b']));
   assert.equal(r.substantive, true);
 });
+
+test('a very long added line is substantive and fast', () => {
+  const long = 'word. '.repeat(35000);
+  const t0 = Date.now();
+  const r = classifyChange(diff([], [long]), rule(['\\bonly\\b']));
+  assert.ok(Date.now() - t0 < 1000);
+  assert.equal(r.substantive, true);
+  assert.equal(r.why, 'very long line');
+});
