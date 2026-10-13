@@ -13,7 +13,9 @@ inputs:
     required: false
     default: ${{ github.base_ref }}
   commit:
-    description: Commit the updated ledger back to the pull request branch ("true" or "false").
+    description: >-
+      "true" commits the updated ledger back to the pull request branch (check out that branch with actions/checkout ref, since a detached HEAD cannot be pushed).
+      "false" prints this run's reviews, then puts the ledger back as committed, so the check judges what is actually on the branch.
     required: false
     default: "true"
   claude-code-version:
@@ -23,6 +25,15 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        BASE: ${{ inputs.base }}
+      run: |
+        if [ -z "${BASE}" ]; then echo "::error::review-seal: no base branch (this action runs on pull_request events)"; exit 1; fi
+        if [ -z "${ANTHROPIC_API_KEY}" ]; then echo "::error::review-seal: anthropic-api-key is empty (fork pull request or missing secret)"; exit 1; fi
+        if ! git rev-parse --verify --quiet "origin/${BASE}" >/dev/null; then echo "::error::review-seal: origin/${BASE} not found; use actions/checkout with fetch-depth: 0"; exit 1; fi
     - name: Install Claude Code
       shell: bash
       env:
@@ -33,22 +44,30 @@ runs:
       env:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         BASE: ${{ inputs.base }}
-      run: node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" || true
+      run: node "$GITHUB_ACTION_PATH/bin/review-seal.js" review --changed-since "origin/${BASE}" 2>&1 | tee "$RUNNER_TEMP/review-seal-review.log" || true
     - name: Commit the ledger
       if: inputs.commit == 'true'
       shell: bash
       run: |
-        if ! git diff --quiet -- .seal/ledger.json; then
+        LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
+        if [ -n "$(git status --porcelain -- "$LEDGER")" ]; then
+          git symbolic-ref -q HEAD >/dev/null || { echo "::error::review-seal: check out the PR branch (actions/checkout with ref: the PR head branch) or set commit: false"; exit 1; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .seal/ledger.json
+          git add -- "$LEDGER"
           git commit -m "review-seal: record independent reviews"
           git push
         fi
+    - name: Restore the ledger
+      if: inputs.commit != 'true'
+      shell: bash
+      run: |
+        LEDGER="$(node "$GITHUB_ACTION_PATH/bin/review-seal.js" ledger-path)"
+        echo "review-seal: commit is false, so this run's reviews are not kept. They were:"
+        cat "$RUNNER_TEMP/review-seal-review.log" 2>/dev/null || true
+        git checkout -- "$LEDGER" 2>/dev/null || rm -f -- "$LEDGER"
     - name: Check
       shell: bash
       env:
         BASE: ${{ inputs.base }}
-      run: |
-        git rev-parse --verify --quiet "origin/${BASE}" >/dev/null || { echo "review-seal: origin/${BASE} not found; use actions/checkout with fetch-depth: 0" >&2; exit 2; }
-        node "$GITHUB_ACTION_PATH/bin/review-seal.js" check --changed-since "origin/${BASE}"
+      run: node "$GITHUB_ACTION_PATH/bin/review-seal.js" check --changed-since "origin/${BASE}"
