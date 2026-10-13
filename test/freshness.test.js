@@ -48,16 +48,16 @@ test('fact-check passes give the reviewer web tools, and only those', async () =
   const log = join(mkdtempSync(join(tmpdir(), 'rs-log-')), 'calls.jsonl');
   process.env.FAKE_CLAUDE_LOG = log;
   try {
-    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222', tools: ['WebSearch', 'WebFetch'], fetchDomains: ['example.com', '*.gov.uk'] }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
+    await runReviewer({ file: 'docs/guide.md', pass: 'consistency', rubricPath: 'r', contentHash: 'sha256:1111111111111111', rubricHash: 'sha256:2222222222222222', tools: ['WebSearch', 'WebFetch'], fetchDomains: ['example.com', 'www.gov.uk'] }, { root, claude: FAKE_CLAUDE, timeoutSeconds: 10 });
   } finally { delete process.env.FAKE_CLAUDE_LOG; }
   const { args } = JSON.parse(readFileSync(log, 'utf8').trim());
   const toolsAt = args.indexOf('--tools');
   assert.deepEqual(args.slice(toolsAt + 1, toolsAt + 6), ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch']);
   const allowAt = args.indexOf('--allowedTools');
-  assert.deepEqual(args.slice(allowAt + 1, allowAt + 4), ['WebSearch', 'WebFetch(domain:example.com)', 'WebFetch(domain:*.gov.uk)']);
+  assert.deepEqual(args.slice(allowAt + 1, allowAt + 4), ['WebSearch', 'WebFetch(domain:example.com)', 'WebFetch(domain:www.gov.uk)']);
   assert.ok(!args.slice(allowAt + 1).includes('WebFetch'), 'WebFetch is never allowed without a domain');
   assert.match(args[args.indexOf('-p') + 1], /source URL/);
-  assert.match(args[args.indexOf('-p') + 1], /example\.com, \*\.gov\.uk/);
+  assert.match(args[args.indexOf('-p') + 1], /example\.com, www\.gov\.uk/);
 });
 
 test('an aged review shows as EXPIRED, fails check, and review --due renews it', () => {
@@ -170,10 +170,10 @@ test('WebFetch needs a list of domains, and the list is checked', () => {
   assert.throws(() => cfgWith({ tools: ['WebFetch'] }), /"fetchDomains"/);
   assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [] }), /"fetchDomains"/);
   for (const bad of ['*', 'a.*.com', 'http://x.com', 'x.com/path', '.x.com', 'x..com', 'x com', '*.', 7]) {
-    assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [bad] }), /"fetchDomains"/, String(bad));
+    assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [bad] }), /fetchDomains/, String(bad));
   }
   assert.throws(() => cfgWith({ fetchDomains: ['x.com'] }), /needs WebFetch/);
-  assert.deepEqual(cfgWith({ tools: ['WebFetch'], fetchDomains: ['x.com', '*.example.org'] }).passes['fact-check'].fetchDomains, ['x.com', '*.example.org']);
+  assert.deepEqual(cfgWith({ tools: ['WebFetch'], fetchDomains: ['x.com', 'www.example.org'] }).passes['fact-check'].fetchDomains, ['x.com', 'www.example.org']);
   assert.deepEqual(cfgWith({}).passes['fact-check'].fetchDomains, []);
 });
 
@@ -231,10 +231,9 @@ test('Bearer is redacted only as a header or before a token-like value', async (
   assert.equal(redactSecrets('L4: authorization: bearer short'), 'L4: authorization: bearer [redacted]');
 });
 
-test('wildcard fetch domains must sit under a registrable name', () => {
-  assert.ok(cfgWith({ tools: ['WebFetch'], fetchDomains: ['*.example.com'] }));
-  for (const bad of ['*.co.uk', '*.vercel.app', '*.github.io', '*.com.au', '*.com']) {
-    assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [bad] }), /anyone can publish/, bad);
+test('fetch domains are exact hostnames: no wildcards', () => {
+  for (const bad of ['*.example.com', '*.co.uk', '*', '*.', 'docs.*.com']) {
+    assert.throws(() => cfgWith({ tools: ['WebFetch'], fetchDomains: [bad] }), /fetchDomains lists exact hostnames; wildcards are not allowed/, bad);
   }
-  assert.ok(cfgWith({ tools: ['WebFetch'], fetchDomains: ['*.bbc.co.uk', 'example.vercel.app'] }));
+  assert.ok(cfgWith({ tools: ['WebFetch'], fetchDomains: ['www.bbc.co.uk', 'example.vercel.app'] }));
 });
