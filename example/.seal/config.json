@@ -1,0 +1,6 @@
+{
+  "passes": {
+    "consistency": { "rubric": ".seal/rubrics/consistency.md", "files": ["docs/**/*.md"] }
+  },
+  "autoReview": "stop"
+}
