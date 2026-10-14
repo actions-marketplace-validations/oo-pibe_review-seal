@@ -1,1 +1,63 @@
-{}
+{
+  "README.md": {
+    "claims": {
+      "at": "2026-10-14",
+      "contentHash": "sha256:254a7925c8bd6c06",
+      "rubricHash": "sha256:d27749f0433feb4e",
+      "verdict": "clean",
+      "findings": [],
+      "reviewer": "independent",
+      "via": "agent",
+      "reviewedBlob": "a70ca7414c0f522c917690ab085c5fa7bebe406f",
+      "token": "rv_1e5ca5a303ce"
+    },
+    "facts": {
+      "at": "2026-10-14",
+      "contentHash": "sha256:254a7925c8bd6c06",
+      "rubricHash": "sha256:f0d320fde49a1bf4",
+      "verdict": "clean",
+      "findings": [],
+      "reviewer": "independent",
+      "via": "agent",
+      "reviewedBlob": "a70ca7414c0f522c917690ab085c5fa7bebe406f",
+      "token": "rv_4065c506c847"
+    }
+  },
+  "SECURITY.md": {
+    "claims": {
+      "at": "2026-10-14",
+      "contentHash": "sha256:489afc1d4d5f5f31",
+      "rubricHash": "sha256:d27749f0433feb4e",
+      "verdict": "clean",
+      "findings": [],
+      "reviewer": "independent",
+      "via": "agent",
+      "reviewedBlob": "1c575c98a8d4588edef3414c0114aef2de224589",
+      "token": "rv_cc915e127ec1"
+    },
+    "facts": {
+      "at": "2026-10-14",
+      "contentHash": "sha256:489afc1d4d5f5f31",
+      "rubricHash": "sha256:f0d320fde49a1bf4",
+      "verdict": "clean",
+      "findings": [],
+      "reviewer": "independent",
+      "via": "agent",
+      "reviewedBlob": "1c575c98a8d4588edef3414c0114aef2de224589",
+      "token": "rv_5e844c60582f"
+    }
+  },
+  "example/README.md": {
+    "claims": {
+      "at": "2026-10-14",
+      "contentHash": "sha256:2bc5ce95cd3c7100",
+      "rubricHash": "sha256:d27749f0433feb4e",
+      "verdict": "clean",
+      "findings": [],
+      "reviewer": "independent",
+      "via": "agent",
+      "reviewedBlob": "3efece3a44617c55196e516b7cfbce10117952fc",
+      "token": "rv_1bed177fd320"
+    }
+  }
+}
