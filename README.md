@@ -176,7 +176,7 @@ Each `rubric` file must exist, or every command stops with an error. `init` crea
 | `blockOnFindings` | `false` | Findings don't block by default. They are shown to Claude, printed as `FLAG` lines by `check` and the commit hook, and added as warnings on GitHub pull requests. Set `true` to block instead. |
 | `maxFilesPerRun` | `5` | How many files one automatic review run takes on. Runs you start by hand have no cap. |
 | `model` | `"sonnet"` | Model for the reviewer. |
-| `timeoutSeconds` | `300` | Time limit for one review, from 1 to 1800. |
+| `timeoutSeconds` | `600` | Time limit for one review, from 1 to 1800. |
 | `ledger` | `".seal/ledger.json"` | Where the ledger lives, inside the repository. |
 
 ### Letting small edits through

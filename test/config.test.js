@@ -11,6 +11,7 @@ test('fills defaults', () => {
   const c = parseConfig(JSON.stringify(ok));
   assert.equal(c.autoReview, 'stop');
   assert.equal(c.maxFilesPerRun, 5);
+  assert.equal(c.timeoutSeconds, 600);
   assert.equal(c.blockOnFindings, false);
   assert.equal(c.independentFrom, null);
   assert.equal(c.ledger, '.seal/ledger.json');
