@@ -28,8 +28,8 @@ inputs:
     default: pr
   github-token:
     description: >-
-      Token used to open the pull request in "due" mode. A pull request opened with the default token does not start other workflows;
-      pass a personal access token if checks should run on it.
+      Token used to open the pull request in "due" mode. A pull request opened with the default token gets its workflow runs only in an approval-required state;
+      pass a personal access token if checks should run on it without approval.
     required: false
     default: ${{ github.token }}
   claude-code-version:

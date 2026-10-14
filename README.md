@@ -128,7 +128,7 @@ At commit time, an expired review blocks only when the file has changed substant
 Every Monday it re-reviews what is due, commits the ledger to the branch `review-seal/scheduled` and opens or updates a pull request. The pull request lists every review the branch renews, with its findings, followed by the latest run's log. Nothing lands on your main branch until you merge it. `workflow_dispatch` also lets you start it by hand from the Actions tab.
 
 - With the default token, turn on "Allow GitHub Actions to create and approve pull requests" (Settings, Actions, General), or the pull request can't be opened.
-- A pull request opened with the default token starts no other workflows. Pass a personal access token as `github-token` if your checks should run on it.
+- A pull request opened with the default token gets its workflow runs only in an approval-required state: someone with write access has to choose "Approve workflows to run" on it. Pass a personal access token as `github-token` if your checks should run without that step.
 - If someone commits to `review-seal/scheduled`, or closes its pull request without merging, the job reviews nothing until the branch is deleted, and says so in the job summary. A review that fails shows as an error on its file. After a merge, the next run starts a new pull request.
 - A later run reuses reviews already on the branch when they still match the file and checklist, so they aren't paid for twice.
 
@@ -276,7 +276,7 @@ The Action reviews the covered files the pull request changed, commits the updat
 - `fetch-depth: 0` lets it find the merge base with `origin/<base>`. `ref: ${{ github.head_ref }}` checks out the branch itself: the default pull request checkout is a detached merge commit, which can't be pushed. With `commit: "true"` the Action stops on one before any review runs. Keep `persist-credentials` at its default so the push works. The Action removes checkout's token from `.git/config` while the reviewer runs and puts it back afterwards.
 - `contents: write` lets it push the ledger commit. The `concurrency` group stops two runs on one branch from racing. `cancel-in-progress: false` lets a run that is already paying for reviews finish, and the next run waits for it. Pull after the bot's ledger commit before you push again.
 - It runs on `pull_request` events, where `base` defaults to the pull request's base branch. Anywhere else, pass `base`.
-- A ledger commit pushed with the default `GITHUB_TOKEN` starts no new workflow run. That avoids a loop, but the bot's commit gets no checks, so a required check waits forever. Either pass a personal access token or GitHub App token to `actions/checkout` as `token` (the push then starts one more run, which finds nothing to review and passes), or set `commit: "false"`.
+- A ledger commit pushed with the default `GITHUB_TOKEN` doesn't start new workflow runs on its own. GitHub creates the pull request's runs in an approval-required state, which avoids a loop, so the bot's commit gets no checks until someone with write access chooses "Approve workflows to run", and a required check waits until then. To skip that step, either pass a personal access token or GitHub App token to `actions/checkout` as `token` (the push then starts one more run, which finds nothing to review and passes), or set `commit: "false"`.
 - With `commit: "false"`, the Action prints that run's reviews, then puts the ledger back as committed and checks that. The check fails until the reviews are committed some other way, for example by the plugin or `review-seal review` on your machine. Its message says so.
 - Pull requests from forks are not supported. GitHub withholds secrets from them, so the Action stops with "anthropic-api-key is empty", and it couldn't push to a fork anyway. Review those branches locally. Don't work around this with `pull_request_target` plus a checkout of the pull request's head: that runs untrusted changes with your secrets.
 - Each run calls Claude, billed to the API key. Keep the key in a repository secret. The Action installs Claude Code version `2.1.251` unless you set `claude-code-version`.
@@ -298,7 +298,7 @@ You can skip the plugin and the local hook and let the Action do every review.
 
 1. Run `npx review-seal init` once on your machine, point `files` at what needs review, and commit `.seal/`. The Action reads the config and checklists from the repository.
 2. Add the pull request workflow above and keep `commit: "true"`, the default, so each run's reviews are committed back to the branch.
-3. If the check is required before merging, pass a personal access token or GitHub App token to `actions/checkout` as `token`. A ledger commit pushed with the default token starts no new run, so a required check would wait forever.
+3. If the check is required before merging, pass a personal access token or GitHub App token to `actions/checkout` as `token`. With the default token, the runs for the bot's ledger commit wait until someone with write access approves them.
 4. Add the scheduled workflow from [On a schedule with GitHub Actions](#on-a-schedule-with-github-actions) if reviews should expire.
 
 With `commit: "false"` in this setup, no review is ever kept. Each run pays for the same reviews again and the check keeps failing, because nothing else records them.

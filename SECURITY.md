@@ -17,7 +17,7 @@ A cloned repository is not trusted, and neither is what the reviewer writes.
 
 - Checklist text is never sent into your Claude session. When Claude edits a covered file, the plugin names the checklist file the reviewer will use (its path only). The reviewer reads the checklist itself, in its own read-only session.
 - Reviewer output and ledger text are sanitised. Findings are stored on one line with control characters (including ANSI and OSC escape sequences) and bidirectional-override characters removed. Everything review-seal prints from the ledger, file names or reviewer errors is sanitised again, because a repository can ship a ledger written by anyone.
-- On GitHub Actions, nothing review-seal prints from that text can become a workflow command: no such line starts with `::`, and the legacy `##[` form is broken up. The only command it prints on purpose is the `::warning` annotation for an open finding, with its data escaped.
+- On GitHub Actions, nothing review-seal prints from that text can become a workflow command: no such line starts with `::`, and the legacy `##[` form is broken up. The only commands it builds from that text on purpose are the `::warning` annotation for an open finding and the `::error` annotation for a review that failed, with their data escaped.
 
 ## A change cannot rewrite its own review rules
 
