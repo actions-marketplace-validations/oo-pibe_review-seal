@@ -6,6 +6,10 @@ A Claude Code plugin, git pre-commit hook and GitHub Action that run a fresh Cla
 
 You give each review a checklist. When Claude Code finishes a turn, an independent reviewer (a fresh Claude Code session that never saw the conversation) reads every covered file that changed and reports what it found. The result goes into `.seal/ledger.json`, tied to the exact text it read and the exact checklist it used. Change a word in either and that review stops counting.
 
+![review-seal demo: a commit is blocked until a fresh reviewer has read the file](docs/demo.svg)
+
+A 60-second run on the example project. The reviews are real; the waits are shortened.
+
 **What it can't do.** It can't stop someone who sets out to forge a review: the ledger catches hand edits, but anyone can record a review with made-up evidence, and that shows up in git history. It also can't judge whether a review was any good. It records that one happened, on which version, against which checklist and by whom.
 
 **What's different.** Other tools already run a second reviewer when the agent stops. review-seal keeps a review history in the repository, tied to the exact text and checklist each review read. Claude Code, the git hook and CI all enforce that same record. Reviews can also expire, and a scheduled job re-checks them.
