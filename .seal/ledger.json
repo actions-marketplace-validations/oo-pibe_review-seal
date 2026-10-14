@@ -2,25 +2,25 @@
   "README.md": {
     "claims": {
       "at": "2026-10-14",
-      "contentHash": "sha256:254a7925c8bd6c06",
+      "contentHash": "sha256:30cd28e54f4845be",
       "rubricHash": "sha256:d27749f0433feb4e",
       "verdict": "clean",
       "findings": [],
       "reviewer": "independent",
       "via": "agent",
-      "reviewedBlob": "a70ca7414c0f522c917690ab085c5fa7bebe406f",
-      "token": "rv_1e5ca5a303ce"
+      "reviewedBlob": "16673dfd467ca8b475436e6110f252a845414134",
+      "token": "rv_8d66a4a557ca"
     },
     "facts": {
       "at": "2026-10-14",
-      "contentHash": "sha256:254a7925c8bd6c06",
+      "contentHash": "sha256:30cd28e54f4845be",
       "rubricHash": "sha256:f0d320fde49a1bf4",
       "verdict": "clean",
       "findings": [],
       "reviewer": "independent",
       "via": "agent",
-      "reviewedBlob": "a70ca7414c0f522c917690ab085c5fa7bebe406f",
-      "token": "rv_4065c506c847"
+      "reviewedBlob": "16673dfd467ca8b475436e6110f252a845414134",
+      "token": "rv_ba302a874f08"
     }
   },
   "SECURITY.md": {
