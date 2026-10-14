@@ -76,7 +76,7 @@ Then add the Claude Code plugin so reviews run on their own:
     /plugin marketplace add oo-pibe/review-seal
     /plugin install review-seal@review-seal
 
-Reviews use the `claude` command you already have, signed in as you. Each one is a short headless session that can only read (Read, Grep, Glob, plus web lookups if a pass turns them on). A file is reviewed again only when it or its checklist changes, or when its review expires. In our tests on Claude Code 2.1.251 (Sonnet), a consistency review of a guide-length page cost about 8 to 22 cents and a fact-check pass with web lookups about 72 cents; on 2.1.296 small test pages cost 2 to 3 cents. Costs depend on the model and page length.
+Reviews use the `claude` command you already have, signed in as you. Each one is a short headless session that can only read (Read, Grep, Glob, plus web lookups if a pass turns them on). A file is reviewed again only when it or its checklist changes, or when its review expires. In our tests on Claude Code 2.1.251 (Sonnet), a consistency review of a guide-length page cost about 8 to 22 cents and a fact-check pass with web lookups about 72 cents; on 2.1.296 small test pages cost 2 to 3 cents. Reviews that read the code to check a long README cost more, about 30 cents to 1 dollar each in our tests on Claude Code 2.1.251 (Sonnet). Costs depend on the model and page length.
 
 The plugin runs its own copy of review-seal, and the git hook runs the one in `node_modules`. Keep the two on the same version: when you update the npm package, update the plugin from `/plugin` as well, and the other way round. `npx review-seal --version` prints the package's version, and `/plugin` shows the plugin's.
 
