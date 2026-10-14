@@ -1,0 +1,17 @@
+name: review-seal freshness
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./
+        with:
+          mode: due
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

@@ -1,0 +1,16 @@
+{
+  "passes": {
+    "claims": {
+      "rubric": ".seal/rubrics/claims.md",
+      "files": ["README.md", "SECURITY.md", "example/README.md"]
+    },
+    "facts": {
+      "rubric": ".seal/rubrics/facts.md",
+      "files": ["README.md", "SECURITY.md"],
+      "maxAgeDays": 30,
+      "tools": ["WebFetch"],
+      "fetchDomains": ["code.claude.com", "docs.github.com", "git-scm.com", "pre-commit.com"]
+    }
+  },
+  "timeoutSeconds": 900
+}

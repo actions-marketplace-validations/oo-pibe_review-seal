@@ -45,6 +45,8 @@ Pricing pages, landing pages and case studies can be checked against an approved
 
     "claims": { "rubric": ".seal/rubrics/approved-claims.md", "files": ["pricing/**/*.md", "landing/**/*.md", "case-studies/**/*.md"] }
 
+This repository reviews its own docs. A `claims` pass checks `README.md`, `SECURITY.md` and `example/README.md` against the code, and a `facts` pass checks what `README.md` and `SECURITY.md` say about Claude Code, git, GitHub Actions and pre-commit against their current documentation. The reviews are in [.seal/ledger.json](.seal/ledger.json). CI fails when one is missing, out of date or expired, and a weekly job renews the `facts` reviews, which expire after 30 days.
+
 ## Why I built it
 
 I run [Road to Kickoff](https://roadtokickoff.com), football travel guides. Agents draft and research, and nothing ships without review passes. review-seal is how I make sure those passes happen. Each rule in it closes a gap I found in that process.
