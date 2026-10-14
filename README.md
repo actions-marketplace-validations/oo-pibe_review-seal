@@ -238,7 +238,7 @@ For [pre-commit](https://pre-commit.com), add to `.pre-commit-config.yaml`:
 
 To guard merges too, also run `pre-commit install --hook-type pre-merge-commit`.
 
-The hook needs Node 20 or later on your `PATH`. pre-commit installs nothing for it: it is a `language: script` hook that runs `bin/review-seal.js check --staged` from its own checkout of this repository. It doesn't use `language: node` because npm 11 refuses the git install pre-commit runs for node hooks (`EALLOWGIT`).
+The hook needs Node 20 or later on your `PATH`. pre-commit installs nothing for it: it is a `language: script` hook that runs `bin/review-seal.js check --staged` from its own checkout of this repository. pre-commit 4.4.0 renamed that language `unsupported_script` and keeps `script` as an alias, so the hook still works on older versions. It doesn't use `language: node` because npm 11 refuses the git install pre-commit runs for node hooks (`EALLOWGIT`).
 
 Stage the ledger with your change (`git add .seal/ledger.json`). pre-commit stashes unstaged changes before hooks run, so a review recorded but not staged is hidden from the check. When that blocks a commit, the message says so. The plain git hook from `install-hook` doesn't have this problem: it stages the reviews for that commit's files itself.
 
@@ -250,7 +250,7 @@ Two branches that each record reviews change the ledger in the same place, which
 - It sets `merge.review-seal.name` and `merge.review-seal.driver` in the repository's own git config. That config is not shared through git, so everyone who clones the repository runs `review-seal install-hook` once.
 - The driver is `review-seal merge-driver %O %A %B` (taken from `node_modules/.bin`, then from `PATH`; failing both, `node` runs the copy `install-hook` ran from). It merges each file and pass three ways. If one side still has the review it had at the common ancestor, the other side's review is kept, whatever the dates. That is also how a review one side pruned stays pruned. When both sides changed the review, the later one wins, and on the same day your side's does. Entries that fail their token check are dropped. If either side is not a ledger, the driver leaves git's normal conflict for you to resolve. `install-hook` does not set the driver up for a ledger path with whitespace or a pattern character (`*`, `?`, `[`, `]`, `\`), since `.gitattributes` would read it as a pattern.
 
-When the merged ledger keeps a review of an older version of a file, the commit check looks for a review of the merged version in the commit being merged, cherry-picked or rebased, and stages it. git writes a clean merge's commit before its `pre-merge-commit` hook can change the index, so in that case the hook stages the review and stops the merge; run `git commit` to finish it.
+When the merged ledger keeps a review of an older version of a file, the commit check looks for a review of the merged version in the commit being merged, cherry-picked or rebased, and stages it. A clean merge writes its tree before the `pre-merge-commit` hook runs, so a review the hook stages would miss that merge commit. In that case the hook stages the review and stops the merge; run `git commit` to finish it.
 
 A merge that needs no conflict resolution runs the `pre-merge-commit` hook, which `install-hook` writes, so it is checked like any commit. A merge with conflicts is checked by `pre-commit` when you commit the resolution. Rebases, cherry-picks and `git am` run neither hook (see [Limits](#limits)).
 
