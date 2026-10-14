@@ -10,6 +10,41 @@ You give each review a checklist. When Claude Code finishes a turn, an independe
 
 **What's different.** Other tools already run a second reviewer when the agent stops. review-seal keeps a review history in the repository, tied to the exact text and checklist each review read. Claude Code, the git hook and CI all enforce that same record. Reviews can also expire, and a scheduled job re-checks them.
 
+The commit check and the CI check work whatever edited the file, whether a person or any agent. The automatic review when a turn ends, and the reviewer itself, use Claude Code today.
+
+## Where teams use it
+
+It works on files kept in git. Content that lives only inside a SaaS tool, such as a CMS or a sequencing tool, isn't covered unless you keep a copy in the repository.
+
+Docs and help centers get a consistency pass, so a page that contradicts itself or another page is flagged, and a fact-check pass for the product details the pages describe.
+
+Marketing blog posts quote stats, prices and competitor features that go out of date. A fact-check pass with web lookups checks those claims, and `maxAgeDays` makes every post due again after a set time, even one nobody has edited:
+
+    "blog-facts": {
+      "rubric": ".seal/rubrics/blog-facts.md",
+      "files": ["blog/**/*.md"],
+      "maxAgeDays": 90,
+      "tools": ["WebSearch", "WebFetch"],
+      "fetchDomains": ["www.example.com"]
+    }
+
+If you keep outreach sequences as code, as Markdown or YAML templates in the repository, a checklist can ask for broken personalisation tokens, claims the product can't back up, a missing opt-out line and anything that breaks your tone rules. The commit check holds a sequence change until it has been reviewed. Findings are flagged; set `blockOnFindings` to `true` if they should stop the commit as well:
+
+    "outreach": { "rubric": ".seal/rubrics/outreach.md", "files": ["sequences/**/*.md", "sequences/**/*.yaml"] }
+
+Sales battlecards and comparison pages describe competitors, and competitors change their pricing and features often. Give that pass a 30-day shelf life and web lookups:
+
+    "battlecards": {
+      "rubric": ".seal/rubrics/battlecards.md",
+      "files": ["battlecards/**/*.md", "compare/**/*.md"],
+      "maxAgeDays": 30,
+      "tools": ["WebSearch"]
+    }
+
+Pricing pages, landing pages and case studies can be checked against an approved source in the repository. Keep the approved claims and customer quotes in one file, such as `data/approved-claims.md`, and have the checklist tell the reviewer to read it and report any figure, price or quote the page uses that the file doesn't contain. Editing that file doesn't make old reviews stale, because only the page and the checklist are hashed. If a change to the approved list should send every page back for review, put the list in the checklist itself.
+
+    "claims": { "rubric": ".seal/rubrics/approved-claims.md", "files": ["pricing/**/*.md", "landing/**/*.md", "case-studies/**/*.md"] }
+
 ## Why I built it
 
 I run [Road to Kickoff](https://roadtokickoff.com), football travel guides. Agents draft and research, and nothing ships without review passes. review-seal is how I make sure those passes happen. Each rule in it closes a gap I found in that process.
