@@ -30,3 +30,14 @@ test('each glob that matches no files warns, not only whole passes', () => {
   write(root, 'guides/a.md', 'x\n');
   assert.doesNotMatch(run(root, ['list']).err, /matches no files/);
 });
+
+test('ledger-path, prune and merge-ledger print no config warnings', () => {
+  const { root } = sealRepo({ passes: { consistency: { rubric, files: ['docs/**/*.md'], tools: ['WebFetch'], fetchDomains: ['www.example.com'] } } });
+  write(root, 'other-ledger.json', '{}\n');
+  for (const args of [['ledger-path'], ['prune'], ['merge-ledger', 'other-ledger.json']]) {
+    const r = run(root, args);
+    assert.equal(r.code, 0, `${args.join(' ')}: ${r.err}`);
+    assert.equal(r.err, '', args.join(' '));
+  }
+  assert.match(run(root, ['list']).err, /placeholder host/);
+});
