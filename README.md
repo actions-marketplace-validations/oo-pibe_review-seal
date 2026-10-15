@@ -6,9 +6,9 @@ For teams that use AI to write marketing, sales and docs content: it checks each
 
 Claude Code plugin, git pre-commit hook and GitHub Action.
 
-![review-seal demo: a commit is blocked until a fresh reviewer has read the file](docs/demo.svg)
+![review-seal demo: a commit is blocked until a fresh reviewer has read the file](https://raw.githubusercontent.com/oo-pibe/review-seal/main/docs/demo.webp)
 
-A 60-second run on the example project. The reviews are real; the waits are shortened.
+A one-minute animated walk-through of the example project.
 
 ## Why revenue teams care
 
@@ -34,7 +34,7 @@ It can't judge whether a review was any good. It records that one happened, on w
 - Pricing pages, landing pages and case studies, checked against one file of approved claims and customer quotes, such as `data/approved-claims.md`. The checklist tells the reviewer to report any figure, price or quote the page uses that the file doesn't contain. review-seal hashes only the page and the checklist, so editing that file doesn't send pages back for review. If it should, put the list in the checklist itself.
 - Docs and help centers. A consistency pass flags a page that contradicts itself or another page, and a fact-check pass checks the product details.
 
-[examples/gtm](examples/gtm) is a complete working GTM setup: an outreach pass that blocks on findings, a battlecard pass with a 30-day shelf life, a blog fact-check pass with a 90-day one, their checklists, an approved-claims file and sample pages with planted problems.
+[examples/gtm](https://github.com/oo-pibe/review-seal/tree/main/examples/gtm) is a complete working GTM setup: an outreach pass that blocks on findings, a battlecard pass with a 30-day shelf life, a blog fact-check pass with a 90-day one, their checklists, an approved-claims file and sample pages with planted problems.
 
 A checklist only needs to say what to look for. review-seal tells the reviewer how to format its answer.
 
@@ -59,9 +59,11 @@ Then add the Claude Code plugin so reviews run on their own:
     /plugin marketplace add oo-pibe/review-seal
     /plugin install review-seal@review-seal
 
+In a session, the install command opens the plugin's details. Choose a scope there to finish installing.
+
 Reviews use the `claude` command you already have, signed in as you. Each one is a short headless session that can only read (Read, Grep, Glob, plus web lookups if a pass turns them on). A file is reviewed again only when it or its checklist changes, or when its review expires.
 
-To try it without installing anything, see [example/README.md](example/README.md) (two minutes).
+To try it without installing anything, see [example/README.md](https://github.com/oo-pibe/review-seal/blob/main/example/README.md) (two minutes).
 
 ## A normal day
 
@@ -80,7 +82,7 @@ Start with a dry run. It lists every file and pass a full run would review, and 
 
 Multiply the number of reviews it lists by what one costs you (cents for a consistency pass on a guide-length page, more with web lookups) before you run `review --all`. I'd start with one pass over the pages that matter most and widen the globs later.
 
-Editing a checklist makes every review in that pass out of date, so plan to re-run the whole pass after each checklist change. Expiry recurs too: with `maxAgeDays: 30`, every page in that pass is due again each month, so budget for it or run `review --due` on a schedule (see [docs/reference.md](docs/reference.md#keeping-pages-current)).
+Editing a checklist makes every review in that pass out of date, so plan to re-run the whole pass after each checklist change. Expiry recurs too: with `maxAgeDays: 30`, every page in that pass is due again each month, so budget for it or run `review --due` on a schedule (see [docs/reference.md](https://github.com/oo-pibe/review-seal/blob/main/docs/reference.md#keeping-pages-current)).
 
 ## Why I built it
 
@@ -92,7 +94,7 @@ My old edit hook matched `Write|Edit`. Agents also change files through shell co
 
 Reviews by the person who built a piece missed problems that an outside reader then caught before publishing. Here the reviewer starts with no view of the conversation, and the ledger records whether each review was independent. Set `independentFrom` and the builder's own reviews stop counting from that date.
 
-This repository reviews its own docs. A `claims` pass checks `README.md`, `SECURITY.md`, `example/README.md` and `docs/reference.md` against the code, and a `facts` pass checks what `README.md` and `SECURITY.md` say about Claude Code, git, GitHub Actions and pre-commit against their current documentation. The reviews are in [.seal/ledger.json](.seal/ledger.json).
+This repository reviews its own docs. A `claims` pass checks `README.md`, `SECURITY.md`, `example/README.md` and `docs/reference.md` against the code, and a `facts` pass checks what `README.md`, `SECURITY.md` and `docs/reference.md` say about Claude Code, git, GitHub Actions and pre-commit against their current documentation. The reviews are in [.seal/ledger.json](https://github.com/oo-pibe/review-seal/blob/main/.seal/ledger.json).
 
 ## Commands
 
@@ -115,11 +117,11 @@ This repository reviews its own docs. A `claims` pass checks `README.md`, `SECUR
     review-seal hash <file>                 print a file's content hash
     review-seal ledger-path                 print the ledger's path from the config
 
-Configuration, CI, branches, limits and the ledger format: [docs/reference.md](docs/reference.md).
+Configuration, CI, branches, limits and the ledger format: [docs/reference.md](https://github.com/oo-pibe/review-seal/blob/main/docs/reference.md).
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for how to report a vulnerability and what the reviewer can reach.
+See [SECURITY.md](https://github.com/oo-pibe/review-seal/blob/main/SECURITY.md) for how to report a vulnerability and what the reviewer can reach.
 
 ## License
 
