@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { sealRepo, run } from './helpers.js';
 
@@ -38,6 +38,12 @@ test('no hint once the hook is installed, under a hook manager, in CI, or from a
   {
     const { root } = sealRepo();
     assert.doesNotMatch(run(root, ['check'], { env: { GITHUB_ACTIONS: 'true' } }).err, HINT);
+    for (const env of [{ CI: 'true' }, { CI: '1' }, { GITLAB_CI: 'true' }, { BUILDKITE: 'true' }, { CIRCLECI: 'true' }, { JENKINS_URL: 'https://ci.test/' }]) {
+      assert.doesNotMatch(run(root, ['check'], { env }).err, HINT, JSON.stringify(env));
+    }
+    // CI=false is not CI.
+    assert.match(run(root, ['check'], { env: { CI: 'false' } }).err, HINT);
+    rmSync(join(root, '.seal/.state/hook-hint-shown'));
     // CI does not use up the one-time hint.
     assert.match(run(root, ['check']).err, HINT);
   }

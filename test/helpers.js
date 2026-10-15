@@ -9,7 +9,8 @@ export const FAKE_CLAUDE = fileURLToPath(new URL('./fixtures/fake-claude.js', im
 chmodSync(FAKE_CLAUDE, 0o755);
 
 for (const k of Object.keys(process.env)) {
-  if (/^(GIT_|CLAUDE|FAKE_CLAUDE_)/.test(k)) delete process.env[k];
+  // CI variables too: tests that need CI set them, so the suite behaves the same on a laptop and in CI.
+  if (/^(GIT_|CLAUDE|FAKE_CLAUDE_|GITHUB_|RUNNER_)/.test(k) || ['CI', 'GITLAB_CI', 'BUILDKITE', 'CIRCLECI', 'JENKINS_URL', 'REVIEW_SEAL_COMMIT'].includes(k)) delete process.env[k];
 }
 delete process.env.REVIEW_SEAL_CHILD;
 delete process.env.PRE_COMMIT;
