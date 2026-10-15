@@ -22,3 +22,11 @@ test('no warning when every checklist is used', () => {
   const { root } = sealRepo();
   assert.doesNotMatch(run(root, ['list']).err, /not used by any pass/);
 });
+
+test('checklist paths are compared normalised; dotfiles and files that are not .md are ignored', () => {
+  const { root } = sealRepo({ passes: { consistency: { rubric: './.seal//rubrics/consistency.md', files: ['docs/**/*.md'] } } });
+  write(root, '.seal/rubrics/.DS_Store', 'x');
+  write(root, '.seal/rubrics/notes.txt', 'x');
+  write(root, '.seal/rubrics/.drafts/old.md', 'x');
+  assert.doesNotMatch(run(root, ['list']).err, /not used by any pass/);
+});
