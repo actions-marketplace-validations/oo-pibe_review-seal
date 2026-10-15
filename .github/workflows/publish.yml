@@ -1,0 +1,72 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A release event and a manual dispatch must not race each other to publish.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # provenance now, npm trusted publishing later
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # A release event always arrives on its tag; a manual dispatch must be
+      # run from a tag too, never from a branch.
+      - name: The tag being published must match package.json
+        run: |
+          test "$GITHUB_REF_TYPE" = tag \
+            || { echo "run this from the release tag, not from branch $GITHUB_REF_NAME"; exit 1; }
+          tagged="${GITHUB_REF_NAME#v}"
+          declared="$(node -p 'require("./package.json").version')"
+          test "$tagged" = "$declared" \
+            || { echo "tag $GITHUB_REF_NAME does not match package.json $declared"; exit 1; }
+      - run: npm test
+      # The repository's own docs must carry a fresh review before release.
+      - run: node bin/review-seal.js check
+      # The tarball must hold everything the CLI, plugin, hook and Action need,
+      # and none of the tests, examples or this repo's own review history.
+      - name: The tarball contains what it should, and nothing else
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e '
+            const files = require("./pack.json")[0].files.map((f) => f.path);
+            const must = ["bin/", "lib/", "hooks/", "commands/", ".claude-plugin/",
+              "action.yml", ".pre-commit-hooks.yaml", "README.md", "LICENSE",
+              "SECURITY.md", "docs/reference.md"];
+            const mustNot = ["test/", "example/", "examples/", ".seal/"];
+            const has = (p) => p.endsWith("/") ? files.some((f) => f.startsWith(p)) : files.includes(p);
+            const missing = must.filter((p) => !has(p));
+            const extra = mustNot.filter((p) => has(p));
+            console.log(files.length + " files");
+            if (missing.length) console.error("missing from tarball: " + missing.join(", "));
+            if (extra.length) console.error("must not be in tarball: " + extra.join(", "));
+            process.exit(missing.length || extra.length ? 1 : 0);
+          '
+          rm pack.json
+      # npm cannot configure a trusted publisher for a package that does not
+      # exist yet (npm/cli#8544), so the FIRST release needs a bootstrap
+      # NPM_TOKEN secret. Provenance needs only a supported CI, id-token: write
+      # and a matching public repository field, so that release is still
+      # signed. Once it is on the registry, add the trusted publisher on
+      # npmjs.com and delete the secret; npm then prefers OIDC.
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
