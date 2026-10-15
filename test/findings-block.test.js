@@ -45,3 +45,25 @@ test('blockOnFindings: a file changed since its findings review is listed as nee
   assert.match(r.err, /these files need a fresh independent review before this commit/);
   assert.doesNotMatch(r.err, /open findings block/);
 });
+
+test('blockOnFindings in CI: findings that block show as error annotations on their lines', () => {
+  const { root } = blocking();
+  const r = run(root, ['check', 'docs/guide.md'], { env: { GITHUB_ACTIONS: 'true' } });
+  assert.match(r.out, /^::error file=docs\/guide\.md,line=1,title=review-seal consistency::L1: says passport here, tax number elsewhere$/m);
+  assert.doesNotMatch(r.out, /::warning/);
+  // Outside CI, no workflow commands.
+  assert.doesNotMatch(run(root, ['check', 'docs/guide.md']).out, /::error/);
+});
+
+test('error annotations escape the file, title and finding like warnings do', () => {
+  const { root, git } = sealRepo({ blockOnFindings: true, passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**/*.md'] } } });
+  write(root, 'docs/a,b:c.md', 'Text.\n');
+  run(root, ['review', 'docs/a,b:c.md'], { env: { FAKE_CLAUDE_MODE: 'custom', FAKE_CLAUDE_FINDINGS: JSON.stringify(['L1: 50% off\nnext::end']) } });
+  git('add', '-A');
+  const r = run(root, ['check', '--staged'], { env: { GITHUB_ACTIONS: 'true' } });
+  assert.equal(r.code, 1);
+  const line = r.out.split('\n').find((l) => l.startsWith('::error'));
+  assert.ok(line, r.out);
+  assert.match(line, /^::error file=docs\/a%2Cb%3Ac\.md,line=1,title=review-seal consistency::L1: 50%25 off/);
+  assert.equal(r.out.split('\n').filter((l) => /^::/.test(l)).length, 1);
+});
