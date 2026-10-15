@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sealRepo, write, run } from './helpers.js';
 
@@ -58,4 +58,25 @@ test('review --dry-run with nothing to do says so', () => {
   const r = run(root, ['review', '--all', '--dry-run']);
   assert.equal(r.code, 0);
   assert.match(r.out, /nothing needs review/);
+});
+
+test('review --dry-run reports a renamed file\'s review as reused, and changes nothing', () => {
+  const { root, git } = sealRepo();
+  run(root, ['review', 'docs/guide.md']);
+  git('add', '-A'); git('commit', '-qm', 'base');
+  git('mv', 'docs/guide.md', 'docs/visitors.md');
+  const before = readFileSync(join(root, '.seal/ledger.json'), 'utf8');
+  const r = run(root, ['review', '--all', '--dry-run']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^would reuse docs\/visitors\.md \[consistency\] \(renamed from docs\/guide\.md\)$/m);
+  assert.doesNotMatch(r.out, /would review/);
+  assert.equal(readFileSync(join(root, '.seal/ledger.json'), 'utf8'), before);
+});
+
+test('review --dry-run refuses --json', () => {
+  const { root } = sealRepo();
+  const r = run(root, ['review', '--all', '--dry-run', '--json', 'out.json']);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /--dry-run does not write --json; drop one of them/);
+  assert.equal(existsSync(join(root, 'out.json')), false);
 });
