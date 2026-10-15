@@ -6,7 +6,7 @@
   "bin": { "review-seal": "bin/review-seal.js" },
   "files": [
     "bin/", "lib/", ".claude-plugin/", "hooks/", "commands/",
-    "action.yml", ".pre-commit-hooks.yaml", "README.md", "LICENSE", "SECURITY.md"
+    "action.yml", ".pre-commit-hooks.yaml", "README.md", "LICENSE", "SECURITY.md", "docs/reference.md"
   ],
   "engines": { "node": ">=20" },
   "scripts": { "test": "node --test test/*.test.js" },
