@@ -59,3 +59,15 @@ test('a lock left by a process that has exited does not count as a running revie
   assert.doesNotMatch(r.err, /a review is running now/);
   assert.match(r.err, /let Claude finish/);
 });
+
+test('expired with open findings that block: still the shelf-life hint, not Claude', () => {
+  const r = sealRepo({ blockOnFindings: true, passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**/*.md'], maxAgeDays: 30 } } });
+  const text = readFileSync(join(r.root, 'docs/guide.md'));
+  const rubric = readFileSync(join(r.root, '.seal/rubrics/consistency.md'));
+  const old = makeEntry('docs/guide.md', 'consistency', { at: '2020-01-01', contentHash: contentHash(text), rubricHash: contentHash(rubric), verdict: 'findings', findings: ['L1: wrong'], reviewer: 'independent', via: 'agent' });
+  write(r.root, '.seal/ledger.json', JSON.stringify({ 'docs/guide.md': { consistency: old } }));
+  const c = run(r.root, ['check']);
+  assert.equal(c.code, 1);
+  assert.match(c.err, /Fix: past its shelf life; run:\n {7}review-seal review docs\/guide\.md/);
+  assert.doesNotMatch(c.err, /let Claude finish/);
+});
