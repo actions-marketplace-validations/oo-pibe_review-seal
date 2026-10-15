@@ -1,50 +1,63 @@
 {
   "README.md": {
     "claims": {
-      "at": "2026-10-14",
-      "contentHash": "sha256:30cd28e54f4845be",
+      "at": "2026-10-15",
+      "contentHash": "sha256:4e8d23db9f55c14b",
       "rubricHash": "sha256:d27749f0433feb4e",
       "verdict": "clean",
       "findings": [],
       "reviewer": "independent",
       "via": "agent",
-      "reviewedBlob": "16673dfd467ca8b475436e6110f252a845414134",
-      "token": "rv_8d66a4a557ca"
+      "reviewedBlob": "2467788b9e092fb8e9ab73a02e21b8aa6ecc9193",
+      "token": "rv_a63d82a6ab91"
     },
     "facts": {
-      "at": "2026-10-14",
-      "contentHash": "sha256:30cd28e54f4845be",
+      "at": "2026-10-15",
+      "contentHash": "sha256:4e8d23db9f55c14b",
       "rubricHash": "sha256:f0d320fde49a1bf4",
       "verdict": "clean",
       "findings": [],
       "reviewer": "independent",
       "via": "agent",
-      "reviewedBlob": "16673dfd467ca8b475436e6110f252a845414134",
-      "token": "rv_ba302a874f08"
+      "reviewedBlob": "2467788b9e092fb8e9ab73a02e21b8aa6ecc9193",
+      "token": "rv_0e1f3024289f"
     }
   },
   "SECURITY.md": {
     "claims": {
-      "at": "2026-10-14",
-      "contentHash": "sha256:489afc1d4d5f5f31",
+      "at": "2026-10-15",
+      "contentHash": "sha256:20af6bd07f5e4cc5",
       "rubricHash": "sha256:d27749f0433feb4e",
       "verdict": "clean",
       "findings": [],
       "reviewer": "independent",
       "via": "agent",
-      "reviewedBlob": "1c575c98a8d4588edef3414c0114aef2de224589",
-      "token": "rv_cc915e127ec1"
+      "reviewedBlob": "b1be86e3b1594eb07254124cc595fc894fa52274",
+      "token": "rv_7c0a204839c0"
     },
     "facts": {
-      "at": "2026-10-14",
-      "contentHash": "sha256:489afc1d4d5f5f31",
+      "at": "2026-10-15",
+      "contentHash": "sha256:20af6bd07f5e4cc5",
       "rubricHash": "sha256:f0d320fde49a1bf4",
       "verdict": "clean",
       "findings": [],
       "reviewer": "independent",
       "via": "agent",
-      "reviewedBlob": "1c575c98a8d4588edef3414c0114aef2de224589",
-      "token": "rv_5e844c60582f"
+      "reviewedBlob": "b1be86e3b1594eb07254124cc595fc894fa52274",
+      "token": "rv_dfcd2ed62a8c"
+    }
+  },
+  "docs/reference.md": {
+    "claims": {
+      "at": "2026-10-15",
+      "contentHash": "sha256:6fc963b08f195f2a",
+      "rubricHash": "sha256:d27749f0433feb4e",
+      "verdict": "clean",
+      "findings": [],
+      "reviewer": "independent",
+      "via": "agent",
+      "reviewedBlob": "02b57888fa5429e05c1c4c6f8c05ebcbfcb5b393",
+      "token": "rv_357a0375ddf7"
     }
   },
   "example/README.md": {

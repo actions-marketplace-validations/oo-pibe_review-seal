@@ -9,15 +9,16 @@ review-seal's own state is `.seal/`, the configured ledger and the ledger's entr
 - Each recorded review stores the bytes the reviewer read as a git object (`git hash-object -w`), so later edits can be measured against them. Git applies your clean filters and line-ending settings to those bytes, as it would for `git add`.
 - `install-hook` writes the git hooks, the merge driver's settings (`merge.review-seal.name` and `merge.review-seal.driver` in the repository's own git config) and one `.gitattributes` line naming the ledger.
 
-What does not count: forging a seal. The ledger token detects hand edits; it is not a signature, and the README's ledger section says so.
+What does not count: forging a seal. The ledger token detects hand edits; it is not a signature, and [the ledger format](docs/reference.md#the-ledger) says so.
 
 ## Text from the repository and the reviewer
 
 A cloned repository is not trusted, and neither is what the reviewer writes.
 
 - Checklist text is never sent into your Claude session. When Claude edits a covered file, the plugin names the checklist file the reviewer will use (its path only). The reviewer reads the checklist itself, in its own read-only session.
+- At the first prompt of a session, open findings already in the ledger reach Claude as counts and file names only, never their text, because anyone who can commit can edit the ledger. Findings from a review run on this machine go into the session capped in length and framed as claims to check.
 - Reviewer output and ledger text are sanitised. Findings are stored on one line with control characters (including ANSI and OSC escape sequences) and bidirectional-override characters removed. Everything review-seal prints from the ledger, file names or reviewer errors is sanitised again, because a repository can ship a ledger written by anyone.
-- On GitHub Actions, nothing review-seal prints from that text can become a workflow command: no such line starts with `::`, and the legacy `##[` form is broken up. The only commands it builds from that text on purpose are the `::warning` annotation for an open finding and the `::error` annotation for a review that failed, with their data escaped.
+- On GitHub Actions, nothing review-seal prints from that text can become a workflow command: no such line starts with `::`, and the legacy `##[` form is broken up. The only commands it builds from that text on purpose are annotations, with their data escaped: `::warning` for an open finding, `::error` for a finding that blocks under `blockOnFindings`, and `::error` for a review that failed.
 
 ## A change cannot rewrite its own review rules
 

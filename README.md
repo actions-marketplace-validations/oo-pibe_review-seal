@@ -2,54 +2,85 @@
 
 Prove each version of a file got an independent review.
 
-A Claude Code plugin, git pre-commit hook and GitHub Action that run a fresh Claude reviewer on the files you name and block commits whose review is missing or out of date.
+For teams that use AI to write marketing, sales and docs content: it checks each page against your rules (prices, competitor claims, personalisation tokens, opt-out lines) before the change can be committed, and re-checks fact-based pages on a schedule.
 
-You give each review a checklist. When Claude Code finishes a turn, an independent reviewer (a fresh Claude Code session that never saw the conversation) reads every covered file that changed and reports what it found. The result goes into `.seal/ledger.json`, tied to the exact text it read and the exact checklist it used. Change a word in either and that review stops counting.
+Claude Code plugin, git pre-commit hook and GitHub Action.
 
 ![review-seal demo: a commit is blocked until a fresh reviewer has read the file](docs/demo.svg)
 
 A 60-second run on the example project. The reviews are real; the waits are shortened.
 
-**What it can't do.** It can't stop someone who sets out to forge a review: the ledger catches hand edits, but anyone can record a review with made-up evidence, and that shows up in git history. It also can't judge whether a review was any good. It records that one happened, on which version, against which checklist and by whom.
+## Why revenue teams care
 
-**What's different.** Other tools already run a second reviewer when the agent stops. review-seal keeps a review history in the repository, tied to the exact text and checklist each review read. Claude Code, the git hook and CI all enforce that same record. Reviews can also expire, and a scheduled job re-checks them.
+A wrong price, an out-of-date competitor claim or a broken `{first_name}` token that reaches a prospect costs deals. review-seal holds the change until a reviewer has checked it against your checklist, and re-checks fact-based pages every 30 or 90 days, even ones nobody edited.
 
-The commit check and the CI check work whatever edited the file, whether a person or any agent. The automatic review when a turn ends, and the reviewer itself, use Claude Code today.
+The reviewer is a fresh Claude Code session that never saw the conversation that wrote the page. Each result is recorded in the repository against the exact text and checklist it read, so changing either one sends the page back for review.
+
+How it has done so far:
+
+- Replayed on earlier versions of my own travel guides, the ones that later needed fixes, it caught 4 of 4 contradictions within a single page and missed the one that spanned two pages. On six control pages it raised no clear false alarms.
+- A review of a guide-length page cost 8 to 22 cents on Sonnet (Claude Code 2.1.251). Fact-checks with web lookups cost more.
+- Run on its own docs before release, it found four real errors.
+
+## What it can't do
+
+It can't judge whether a review was any good. It records that one happened, on which version, against which checklist and by whom. It also can't stop someone who sets out to forge a review: the ledger catches hand edits, but anyone can record a review with made-up evidence, and that shows up in git history. It works on files in git, and the automatic review and the reviewer itself use Claude Code. The commit check and the CI check work whatever edited the file.
 
 ## Where teams use it
 
-It works on files kept in git. Content that lives only inside a SaaS tool, such as a CMS or a sequencing tool, isn't covered unless you keep a copy in the repository.
+- Outreach sequences kept as Markdown or YAML templates. A checklist can ask for malformed personalisation tokens, claims the product can't back up, a missing opt-out line and anything that breaks your tone rules. Findings are flagged; set `blockOnFindings` on that pass if they should stop the commit as well.
+- Battlecards and comparison pages, since competitors change pricing and features often. Give that pass a 30-day shelf life and web lookups.
+- Blog posts that quote stats, prices and competitor features. A fact-check pass with web lookups checks them, and `maxAgeDays` makes every post due again after a set time.
+- Pricing pages, landing pages and case studies, checked against one file of approved claims and customer quotes, such as `data/approved-claims.md`. The checklist tells the reviewer to report any figure, price or quote the page uses that the file doesn't contain. review-seal hashes only the page and the checklist, so editing that file doesn't send pages back for review. If it should, put the list in the checklist itself.
+- Docs and help centers. A consistency pass flags a page that contradicts itself or another page, and a fact-check pass checks the product details.
 
-Docs and help centers get a consistency pass, so a page that contradicts itself or another page is flagged, and a fact-check pass for the product details the pages describe.
+[examples/gtm](examples/gtm) is a complete working GTM setup: an outreach pass that blocks on findings, a battlecard pass with a 30-day shelf life, a blog fact-check pass with a 90-day one, their checklists, an approved-claims file and sample pages with planted problems.
 
-Marketing blog posts quote stats, prices and competitor features that go out of date. A fact-check pass with web lookups checks those claims, and `maxAgeDays` makes every post due again after a set time, even one nobody has edited:
+A checklist only needs to say what to look for. review-seal tells the reviewer how to format its answer.
 
-    "blog-facts": {
-      "rubric": ".seal/rubrics/blog-facts.md",
-      "files": ["blog/**/*.md"],
-      "maxAgeDays": 90,
-      "tools": ["WebSearch", "WebFetch"],
-      "fetchDomains": ["www.example.com"]
-    }
+For content held in a SaaS tool, such as a CMS or a sequencing tool, export or sync a copy to a path in the repository, such as `sequences/`, and point a pass at that path. review-seal only sees files in git.
 
-If you keep outreach sequences as code, as Markdown or YAML templates in the repository, a checklist can ask for broken personalisation tokens, claims the product can't back up, a missing opt-out line and anything that breaks your tone rules. The commit check holds a sequence change until it has been reviewed. Findings are flagged; set `blockOnFindings` to `true` if they should stop the commit as well:
+## Install
 
-    "outreach": { "rubric": ".seal/rubrics/outreach.md", "files": ["sequences/**/*.md", "sequences/**/*.yaml"] }
+Needs Node 20 or later, git 2.24 or later, and [Claude Code](https://code.claude.com/docs) installed and signed in.
 
-Sales battlecards and comparison pages describe competitors, and competitors change their pricing and features often. Give that pass a 30-day shelf life and web lookups:
+    npm install -D review-seal
+    npx review-seal init          # .seal/config.json, a starter checklist, an empty ledger
+    npx review-seal install-hook  # git hooks and the ledger merge driver
 
-    "battlecards": {
-      "rubric": ".seal/rubrics/battlecards.md",
-      "files": ["battlecards/**/*.md", "compare/**/*.md"],
-      "maxAgeDays": 30,
-      "tools": ["WebSearch"]
-    }
+`init` covers `docs/**/*.md` with one pass called `review`. Point `files` at what needs review. Globs are relative to the repository root, so in a monorepo write `packages/site/docs/**/*.md`. Commit `.seal/`: the ledger in it is your review history.
 
-Pricing pages, landing pages and case studies can be checked against an approved source in the repository. Keep the approved claims and customer quotes in one file, such as `data/approved-claims.md`, and have the checklist tell the reviewer to read it and report any figure, price or quote the page uses that the file doesn't contain. Editing that file doesn't make old reviews stale, because only the page and the checklist are hashed. If a change to the approved list should send every page back for review, put the list in the checklist itself.
+Each teammate's clone needs the hook too. Add this to the `scripts` in `package.json` so `npm install` sets it up:
 
-    "claims": { "rubric": ".seal/rubrics/approved-claims.md", "files": ["pricing/**/*.md", "landing/**/*.md", "case-studies/**/*.md"] }
+    "prepare": "review-seal install-hook"
 
-This repository reviews its own docs. A `claims` pass checks `README.md`, `SECURITY.md` and `example/README.md` against the code, and a `facts` pass checks what `README.md` and `SECURITY.md` say about Claude Code, git, GitHub Actions and pre-commit against their current documentation. The reviews are in [.seal/ledger.json](.seal/ledger.json). CI fails when one is missing, out of date or expired, and a weekly job renews the `facts` reviews, which expire after 30 days.
+Then add the Claude Code plugin so reviews run on their own:
+
+    /plugin marketplace add oo-pibe/review-seal
+    /plugin install review-seal@review-seal
+
+Reviews use the `claude` command you already have, signed in as you. Each one is a short headless session that can only read (Read, Grep, Glob, plus web lookups if a pass turns them on). A file is reviewed again only when it or its checklist changes, or when its review expires.
+
+To try it without installing anything, see [example/README.md](example/README.md) (two minutes).
+
+## A normal day
+
+1. Claude edits `sequences/q4-reengage.yaml`. The plugin tells it the file needs a review.
+2. Claude finishes its turn. The reviewer starts in the background, and the session doesn't wait.
+3. The verdict lands in `.seal/ledger.json`. On your next message, Claude sees any findings, or a one-line note that the review came back clean.
+4. You commit. The hook checks every staged covered file against the ledger and blocks any whose review is missing or out of date. The git hook from `install-hook` stages the reviews for that commit's files itself.
+
+`review-seal list` shows every covered file and the state of each pass: `fresh`, `STALE`, `EXPIRED` or `never reviewed`. To review a file right away from Claude Code, use `/review-seal:review sequences/q4-reengage.yaml`.
+
+## Adopting on an existing repo
+
+Start with a dry run. It lists every file and pass a full run would review, and the totals, without spending anything:
+
+    npx review-seal review --dry-run --all
+
+Multiply the number of reviews it lists by what one costs you (cents for a consistency pass on a guide-length page, more with web lookups) before you run `review --all`. I'd start with one pass over the pages that matter most and widen the globs later.
+
+Editing a checklist makes every review in that pass out of date, so plan to re-run the whole pass after each checklist change. Expiry recurs too: with `maxAgeDays: 30`, every page in that pass is due again each month, so budget for it or run `review --due` on a schedule (see [docs/reference.md](docs/reference.md#keeping-pages-current)).
 
 ## Why I built it
 
@@ -61,137 +92,7 @@ My old edit hook matched `Write|Edit`. Agents also change files through shell co
 
 Reviews by the person who built a piece missed problems that an outside reader then caught before publishing. Here the reviewer starts with no view of the conversation, and the ledger records whether each review was independent. Set `independentFrom` and the builder's own reviews stop counting from that date.
 
-## Install
-
-Needs Node 20 or later, git 2.24 or later, and [Claude Code](https://code.claude.com/docs) installed and signed in.
-
-    npm install -D review-seal
-    npx review-seal init          # .seal/config.json, a starter checklist, an empty ledger
-    npx review-seal install-hook  # git hooks and the ledger merge driver
-
-`init` covers `docs/**/*.md` with one pass called `review` and adds `.seal/.state/` to `.gitignore`. Point `files` at what needs review. Globs are relative to the repository root, wherever you run the command from, so in a monorepo write `packages/site/docs/**/*.md`. `init` prints the root it wrote to. Commit `.seal/`: the ledger in it is your review history.
-
-Then add the Claude Code plugin so reviews run on their own:
-
-    /plugin marketplace add oo-pibe/review-seal
-    /plugin install review-seal@review-seal
-
-Reviews use the `claude` command you already have, signed in as you. Each one is a short headless session that can only read (Read, Grep, Glob, plus web lookups if a pass turns them on). A file is reviewed again only when it or its checklist changes, or when its review expires. In our tests on Claude Code 2.1.251 (Sonnet), a consistency review of a guide-length page cost about 8 to 22 cents and a fact-check pass with web lookups about 72 cents; on 2.1.296 small test pages cost 2 to 3 cents. Reviews that read the code to check a long README cost more, about 30 cents to 1 dollar each in our tests on Claude Code 2.1.251 (Sonnet). Costs depend on the model and page length.
-
-The plugin runs its own copy of review-seal, and the git hook runs the one in `node_modules`. Keep the two on the same version: when you update the npm package, update the plugin from `/plugin` as well, and the other way round. `npx review-seal --version` prints the package's version, and `/plugin` shows the plugin's.
-
-`install-hook` writes two git hooks with the same check: `pre-commit`, and `pre-merge-commit`, which is the hook git runs for a merge that needs no conflict resolution. It also sets up the ledger's merge driver (see [Branches, merges and rebases](#branches-merges-and-rebases)). If it finds husky, lefthook or a `.pre-commit-config.yaml`, it prints what to add instead of writing `.git/hooks`. With husky or lefthook, run `review-seal check --staged` from both your pre-commit and pre-merge-commit hooks. For pre-commit, see [pre-commit](#pre-commit) below.
-
-Run formatters before reviews, and put review-seal last in your hooks, after lint-staged or any other formatter. A formatter that rewrites a file after its review leaves a version nobody reviewed. The commit is then blocked. When the staged file differs from the reviewed one only in whitespace, the message says a formatter may have changed it.
-
-To try it without installing anything, see [example/README.md](example/README.md) (two minutes).
-
-## A normal day
-
-1. Claude edits `docs/tickets.md`. The plugin tells it the file needs a review. The first time a session touches a file in a pass, it also tells Claude which checklist that pass uses (the path only; the checklist's text never goes into the session).
-2. Claude finishes its turn. The reviewer starts in the background, and the session doesn't wait.
-3. The verdict lands in `.seal/ledger.json`. If there were findings, or a review could not run, Claude sees that when you send your next message.
-4. You commit. The hook checks every staged covered file against the ledger, using the ledger as staged. If the review ran but the ledger isn't staged, the plain git hook stages the reviews for the files in that commit, as long as they reviewed exactly the staged version. It does this even when another file blocks the commit, so the block lists only the files that really need a review.
-
-`review-seal list` shows every covered file, the state of each pass (`fresh`, `STALE`, `EXPIRED` or `never reviewed`), and how many reviews on record were independent and how many were by the builder.
-
-To review a file right away from Claude Code, use the plugin's command: `/review-seal:review docs/tickets.md`.
-
-## Keeping pages current
-
-A page can go out of date without anyone touching it, when a price or a rule changes after the review. So a review can also expire with time.
-
-- Give a pass a shelf life with `"maxAgeDays": 90`. Reviews older than that are due again.
-- Give one file a date with `review-by: 2026-12-01` in its front matter, for copy tied to a season or a deal. Once that day arrives, any review recorded before it is due again.
-- Let a fact-check pass look things up with `"tools": ["WebSearch", "WebFetch"]`. The reviewer then checks claims against current sources and ends each finding with its source. WebFetch also needs `"fetchDomains"`, the exact hostnames the reviewer may fetch from. It still can't edit anything.
-
-`review-seal review --due` re-reviews every covered file that is stale, never reviewed or past its shelf life. `review-seal check` with no arguments exits 1 when any covered file's review is missing, out of date or expired, so it works as a freshness report.
-
-At commit time, an expired review blocks only when the file has changed substantively since the version that was reviewed (see `substantive` below). A smaller edit gets a warning. Files you don't commit are never blocked by their own expiry.
-
-### On a schedule with GitHub Actions
-
-    name: review-seal freshness
-    on:
-      schedule:
-        - cron: "0 9 * * 1"
-      workflow_dispatch:
-    permissions:
-      contents: write
-      pull-requests: write
-    jobs:
-      freshness:
-        runs-on: ubuntu-latest
-        steps:
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          - uses: oo-pibe/review-seal@v0.1.0
-            with:
-              mode: due
-              anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-
-Every Monday it re-reviews what is due, commits the ledger to the branch `review-seal/scheduled` and opens or updates a pull request. The pull request lists every review the branch renews, with its findings, followed by the latest run's log. Nothing lands on your main branch until you merge it. `workflow_dispatch` also lets you start it by hand from the Actions tab.
-
-- With the default token, turn on "Allow GitHub Actions to create and approve pull requests" (Settings, Actions, General), or the pull request can't be opened.
-- A pull request opened with the default token gets its workflow runs only in an approval-required state: someone with write access has to choose "Approve workflows to run" on it. Pass a personal access token as `github-token` if your checks should run without that step.
-- If someone commits to `review-seal/scheduled`, or closes its pull request without merging, the job reviews nothing until the branch is deleted, and says so in the job summary. A review that fails shows as an error on its file. After a merge, the next run starts a new pull request.
-- A later run reuses reviews already on the branch when they still match the file and checklist, so they aren't paid for twice.
-
-### On a schedule without GitHub
-
-A cron line does the same on any machine with Node and Claude Code on its `PATH`:
-
-    0 9 * * 1 cd /path/to/repo && npx review-seal review --due
-
-It updates the ledger in place. Commit it yourself.
-
-## Config
-
-`.seal/config.json`:
-
-    {
-      "passes": {
-        "consistency": { "rubric": ".seal/rubrics/consistency.md", "files": ["docs/**/*.md"] },
-        "fact-check": {
-          "rubric": ".seal/rubrics/fact-check.md",
-          "files": ["docs/guides/**/*.md"],
-          "maxAgeDays": 90,
-          "tools": ["WebSearch", "WebFetch"],
-          "fetchDomains": ["www.example-club.com"]
-        }
-      },
-      "autoReview": "stop",
-      "independentFrom": "2026-11-01"
-    }
-
-Each `rubric` file must exist, or every command stops with an error. `init` creates only `.seal/rubrics/review.md`, so for this example copy it to `.seal/rubrics/consistency.md` and `.seal/rubrics/fact-check.md`, then edit each one.
-
-| Key | Default | Meaning |
-|---|---|---|
-| `passes` | required | One entry per pass. Names use lowercase letters, digits and dashes. |
-| `passes.<p>.rubric` | required | Path to the checklist, inside the repository. Editing it makes that pass's old reviews stale. |
-| `passes.<p>.files` | required | Globs of the files the pass covers, relative to the repository root. `*` matches within a directory, `**` any depth, `?` one character. Nothing else is special. `list` and `check` warn about a pass whose globs match no files. |
-| `passes.<p>.maxAgeDays` | `null` | Shelf life of a review for this pass, in whole days. `null` means no limit. |
-| `passes.<p>.tools` | `[]` | Extra reviewer tools. Only `WebSearch` and `WebFetch` are allowed. |
-| `passes.<p>.fetchDomains` | `[]` | Exact hostnames WebFetch may open. Required with WebFetch, and allowed only with it. No wildcards. |
-| `autoReview` | `"stop"` | `"stop"`: review when Claude finishes a turn. `"commit"`: also review inside the pre-commit hook, for commits made outside Claude. `"off"`: only when you run `review-seal review`. |
-| `independentFrom` | `null` | A `YYYY-MM-DD` date. Reviews recorded by the builder on or after it block. |
-| `substantive.lines` | `8` | With patterns set, a file whose staged version differs from its reviewed version in this many lines always needs a fresh review. |
-| `substantive.patterns` | `[]` | Case-insensitive regular expressions for claims. With none, every change needs a fresh review. With some, a smaller change needs one only if it adds a match or edits a sentence that contains one; otherwise the commit goes through with a warning. |
-| `blockOnFindings` | `false` | Findings don't block by default. They are shown to Claude, printed as `FLAG` lines by `check` and the commit hook, and added as warnings on GitHub pull requests. Set `true` to block instead. |
-| `maxFilesPerRun` | `5` | How many files one automatic review run takes on. Runs you start by hand have no cap. |
-| `model` | `"sonnet"` | Model for the reviewer. |
-| `timeoutSeconds` | `600` | Time limit for one review, from 1 to 1800. |
-| `ledger` | `".seal/ledger.json"` | Where the ledger lives, inside the repository. |
-
-### Letting small edits through
-
-`substantive` is opt-in. With no patterns, which is the default, every change to a reviewed file needs a fresh review before it can be committed. With patterns, a change smaller than `lines` needs one only if it adds a match or edits a sentence that contains one. Anything else goes through with a warning:
-
-    "substantive": { "lines": 8, "patterns": ["\\d", "\\bonly\\b", "\\bfirst\\b"] }
-
-The pattern `\d` (written `\\d` in JSON) makes any edit to a sentence with a number in it count, so a changed price or date still needs a review.
-
-The `substantive` rules apply only to the commit hook (`check --staged`), and only to a file that has a review on record: a file that was never reviewed always blocks, whatever the size of the change. The change is measured from the version the review read, not from the last commit, so a run of small commits cannot drift a file away from what was reviewed: once the total passes the threshold, the next commit blocks. When the reviewed version is not in the repository (see the ledger's `reviewedBlob` below), any change counts as substantive. Every other check treats any change as needing a review. Whitespace at the ends of lines, line endings and blank lines at the start or end of a file don't change its hash. A file that is not valid UTF-8 is hashed byte for byte.
+This repository reviews its own docs. A `claims` pass checks `README.md`, `SECURITY.md`, `example/README.md` and `docs/reference.md` against the code, and a `facts` pass checks what `README.md` and `SECURITY.md` say about Claude Code, git, GitHub Actions and pre-commit against their current documentation. The reviews are in [.seal/ledger.json](.seal/ledger.json).
 
 ## Commands
 
@@ -202,6 +103,7 @@ The `substantive` rules apply only to the commit hook (`check --staged`), and on
     review-seal review --all                every covered file that changed or was never reviewed; ignores shelf life
     review-seal review --due                like --all, and also renews reviews past their shelf life
     review-seal review … --json <file>      also write what the run did (verdicts, failures) as JSON
+    review-seal review … --dry-run          list what would be reviewed, and review nothing
     review-seal check [--staged | --changed-since <ref> | <files…>]
                                             exit 1 if a covered file lacks a fresh review
     review-seal list                        every covered file and its review status
@@ -213,148 +115,7 @@ The `substantive` rules apply only to the commit hook (`check --staged`), and on
     review-seal hash <file>                 print a file's content hash
     review-seal ledger-path                 print the ledger's path from the config
 
-`--changed-since <ref>` takes the files changed between the merge base with `<ref>` and `HEAD`. `check --staged` reads the config and checklists from the git index, so an edit to them that is not staged does not change what the commit is checked against. `check --staged` and `check --changed-since` also block a change that edits the review settings (`.seal/config.json` or any checklist) together with content, meaning any path outside `.seal/` that is not a checklist or the ledger. Commit settings changes on their own, where people can review them as such; the message names the `git restore --staged` command that splits the change. Which paths count as checklists or the ledger comes from the config at the base, so a change that points the new config's ledger or a checklist at a content file still counts that file as content. Merges are judged per side. A settings commit on one branch and a content commit on the other don't block a merge, but a single commit on either branch that changed both does, and so does a merge resolution that itself changes both (paths whose staged version differs from every side). A repository whose base has no config yet is exempt, so setting review-seal up in the same commit as other work is fine. `install-hook` refuses to write into a hooks directory outside the repository (a shared `core.hooksPath`) unless you pass `--force`. `seal --reviewer independent` accepts only a verdict produced for the current version of the file and checklist. `review`, `check` and `seal` say so when a file you name is not covered by any pass. From a subdirectory, `review` also accepts a path written from the repository root.
-
-A file that was renamed or moved keeps its review: when `review` finds that the exact same text was reviewed against the same checklist under a name that no longer exists, it moves that review to the new name instead of paying for a new one. A file outside a sparse checkout still exists, so its review stays where it is. `review-seal prune` removes reviews of files that no longer exist or that no pass covers any more, and prints each one it removed.
-
-Exit codes:
-
-| Code | Meaning |
-|---|---|
-| 0 | OK |
-| 1 | `check`: a covered file needs a review. `review`: a review failed, or another review was already running (the message names the command to run again). |
-| 2 | Bad usage, config or ledger, or `review` of a file no pass covers |
-| 3 | `seal` refused the evidence |
-
-## pre-commit
-
-For [pre-commit](https://pre-commit.com), add to `.pre-commit-config.yaml`:
-
-    repos:
-      - repo: https://github.com/oo-pibe/review-seal
-        rev: v0.1.0
-        hooks:
-          - id: review-seal
-
-To guard merges too, also run `pre-commit install --hook-type pre-merge-commit`.
-
-The hook needs Node 20 or later on your `PATH`. pre-commit installs nothing for it: it is a `language: script` hook that runs `bin/review-seal.js check --staged` from its own checkout of this repository. pre-commit 4.4.0 renamed that language `unsupported_script` and keeps `script` as an alias, so the hook still works on older versions. It doesn't use `language: node` because npm 11 refuses the git install pre-commit runs for node hooks (`EALLOWGIT`).
-
-Stage the ledger with your change (`git add .seal/ledger.json`). pre-commit stashes unstaged changes before hooks run, so a review recorded but not staged is hidden from the check. When that blocks a commit, the message says so. The plain git hook from `install-hook` doesn't have this problem: it stages the reviews for that commit's files itself.
-
-## Branches, merges and rebases
-
-Two branches that each record reviews change the ledger in the same place, which git would report as a conflict on every merge and rebase. `install-hook` sets up a merge driver so git resolves the ledger by itself:
-
-- It adds `.seal/ledger.json merge=review-seal` to `.gitattributes` (with your configured ledger path), if the line is not already there. Commit `.gitattributes`.
-- It sets `merge.review-seal.name` and `merge.review-seal.driver` in the repository's own git config. That config is not shared through git, so everyone who clones the repository runs `review-seal install-hook` once.
-- The driver is `review-seal merge-driver %O %A %B` (taken from `node_modules/.bin`, then from `PATH`; failing both, `node` runs the copy `install-hook` ran from). It merges each file and pass three ways. If one side still has the review it had at the common ancestor, the other side's review is kept, whatever the dates. That is also how a review one side pruned stays pruned. When both sides changed the review, the later one wins, and on the same day your side's does. Entries that fail their token check are dropped. If either side is not a ledger, the driver leaves git's normal conflict for you to resolve. `install-hook` does not set the driver up for a ledger path with whitespace or a pattern character (`*`, `?`, `[`, `]`, `\`), since `.gitattributes` would read it as a pattern.
-
-When the merged ledger keeps a review of an older version of a file, the commit check looks for a review of the merged version in the commit being merged, cherry-picked or rebased, and stages it. A clean merge writes its tree before the `pre-merge-commit` hook runs, so a review the hook stages would miss that merge commit. In that case the hook stages the review and stops the merge; run `git commit` to finish it.
-
-A merge that needs no conflict resolution runs the `pre-merge-commit` hook, which `install-hook` writes, so it is checked like any commit. A merge with conflicts is checked by `pre-commit` when you commit the resolution. Rebases, cherry-picks and `git am` run neither hook (see [Limits](#limits)).
-
-## GitHub pull requests
-
-    name: review-seal
-    on: pull_request
-    permissions:
-      contents: write
-    concurrency:
-      group: review-seal-${{ github.head_ref }}
-      cancel-in-progress: false
-    jobs:
-      review-seal:
-        runs-on: ubuntu-latest
-        steps:
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            with:
-              ref: ${{ github.head_ref }}
-              fetch-depth: 0
-          - uses: oo-pibe/review-seal@v0.1.0
-            with:
-              anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-
-The Action reviews the covered files the pull request changed, commits the updated ledger back to the branch, then fails if any of them still lack a fresh review. Open findings show up as warnings on the pull request, on their line when the finding names one. A review that could not run shows as an error on its file, and the final check step decides whether the job fails. Pin `oo-pibe/review-seal` to a commit SHA in production.
-
-- `fetch-depth: 0` lets it find the merge base with `origin/<base>`. `ref: ${{ github.head_ref }}` checks out the branch itself: the default pull request checkout is a detached merge commit, which can't be pushed. With `commit: "true"` the Action stops on one before any review runs. Keep `persist-credentials` at its default so the push works. The Action removes checkout's token from `.git/config` while the reviewer runs and puts it back afterwards.
-- `contents: write` lets it push the ledger commit. The `concurrency` group stops two runs on one branch from racing. `cancel-in-progress: false` lets a run that is already paying for reviews finish, and the next run waits for it. Pull after the bot's ledger commit before you push again.
-- It runs on `pull_request` events, where `base` defaults to the pull request's base branch. Anywhere else, pass `base`.
-- A ledger commit pushed with the default `GITHUB_TOKEN` doesn't start new workflow runs on its own. GitHub creates the pull request's runs in an approval-required state, which avoids a loop, so the bot's commit gets no checks until someone with write access chooses "Approve workflows to run", and a required check waits until then. To skip that step, either pass a personal access token or GitHub App token to `actions/checkout` as `token` (the push then starts one more run, which finds nothing to review and passes), or set `commit: "false"`.
-- With `commit: "false"`, the Action prints that run's reviews, then puts the ledger back as committed and checks that. The check fails until the reviews are committed some other way, for example by the plugin or `review-seal review` on your machine. Its message says so.
-- Pull requests from forks are not supported. GitHub withholds secrets from them, so the Action stops with "anthropic-api-key is empty", and it couldn't push to a fork anyway. Review those branches locally. Don't work around this with `pull_request_target` plus a checkout of the pull request's head: that runs untrusted changes with your secrets.
-- Each run calls Claude, billed to the API key. Keep the key in a repository secret. The Action installs Claude Code version `2.1.251` unless you set `claude-code-version`.
-
-Inputs:
-
-| Input | Default | Meaning |
-|---|---|---|
-| `anthropic-api-key` | required | API key for the reviewer |
-| `mode` | `"pr"` | `"pr"` reviews a pull request. `"due"` re-reviews what is due and opens a pull request. |
-| `base` | the pull request's base branch | Branch to compare against |
-| `commit` | `"true"` | `"false"` keeps the ledger as committed |
-| `github-token` | `github.token` | Token used to open the pull request in `due` mode |
-| `claude-code-version` | `"2.1.251"` | Version of `@anthropic-ai/claude-code` to install |
-
-### CI only
-
-You can skip the plugin and the local hook and let the Action do every review.
-
-1. Run `npx review-seal init` once on your machine, point `files` at what needs review, and commit `.seal/`. The Action reads the config and checklists from the repository.
-2. Add the pull request workflow above and keep `commit: "true"`, the default, so each run's reviews are committed back to the branch.
-3. If the check is required before merging, pass a personal access token or GitHub App token to `actions/checkout` as `token`. With the default token, the runs for the bot's ledger commit wait until someone with write access approves them.
-4. Add the scheduled workflow from [On a schedule with GitHub Actions](#on-a-schedule-with-github-actions) if reviews should expire.
-
-With `commit: "false"` in this setup, no review is ever kept. Each run pays for the same reviews again and the check keeps failing, because nothing else records them.
-
-## The ledger
-
-    "docs/tickets.md": {
-      "consistency": {
-        "at": "2026-10-13",
-        "contentHash": "sha256:79d000af0d726ca0",
-        "rubricHash": "sha256:46b833f9bc9bbada",
-        "verdict": "findings",
-        "findings": [
-          "L5: says to upload a passport instead of the tax number that L3 says is required"
-        ],
-        "reviewer": "independent",
-        "via": "agent",
-        "reviewedBlob": "3b18e512dba79e4c8300dd08aeb37f8e728b8dad",
-        "token": "rv_6b4e8214c1d6"
-      }
-    }
-
-- `at` is the review date (UTC). `contentHash` and `rubricHash` identify the file and checklist versions it read.
-- `reviewer` is `independent` or `builder`. `via` is `agent` for the automatic reviewer and evidence-backed seals, `manual` for builder seals.
-- `reviewedBlob` is the git object id of the exact bytes the reviewer read, stored in the repository's object database when the review is recorded (`git hash-object -w`). The commit hook measures later edits against it. Entries written before this field existed have none and stay valid; for them the hook compares with `HEAD` when `HEAD` holds the reviewed text, and otherwise treats any change as substantive.
-- `token` is a hash over the file path, the pass name and every other field, `at` included. Edit any of them by hand and the entry stops counting until the file is reviewed again. The token is a plain hash anyone can recompute, so it detects edits, not forgery.
-
-Commit the ledger. It is the review history of every covered file, kept next to the files. Keys are sorted so diffs stay small.
-
-## Limits
-
-- Covered paths that are symlinks are skipped. They are never reviewed, and they never block a commit or a pull request check. `review-seal review <symlink>` exits 2 and says so.
-- review-seal never follows a symlink in its own paths: the config, the checklists, the ledger and `.seal/.state/`. If one of them goes through a symlink, commands exit 2 and say so, and the plugin hooks do nothing.
-- The edit hook skips gitignored files, and `list` and `review --all` only see files git tracks or would track.
-- The plugin spots a Bash command that names a covered path, and when Claude finishes it also looks at what changed in the working tree. A command that never names a covered path (a formatter script, say) is caught only if the same session touched a covered file or ran a command mentioning part of a coverage glob.
-- Once a session edits anything covered, the end-of-turn review also takes every other covered file with uncommitted changes whose review is out of date, including ones changed before the session started, up to `maxFilesPerRun` files a run.
-- An automatic review that fails waits 10 minutes before it is retried. After three failures on the same version it waits until the file changes. Failure records older than a week are cleared the next time any review runs in the repository. `review-seal review` run by hand always tries.
-- Each plugin hook has a 10-second timeout, fails silently and never blocks a session. In a very large repository the check after a Bash command may time out; the working-tree scan when Claude finishes still runs.
-- Findings sent to Claude are capped at 300 characters each, 20 per file and 8,000 characters per message, and framed as claims for Claude to check. Findings from a review you run by hand reach the next Claude Code session in that repository too.
-- The reviewer runs with `--safe-mode --restricted --strict-mcp-config`, read-only tools and deny rules for `.git` and common secret files. In one round of tests on Claude Code 2.1.251, reads of `.git` and a WebFetch to a host outside `fetchDomains` were denied when tried directly with these flags, and a repository `CLAUDE.md` telling the reviewer to answer "clean" did not change its verdict. Treat these as layered defences verified on that version. They are not guarantees. An older Claude Code that lacks these flags fails with a message asking you to update. See [SECURITY.md](SECURITY.md).
-- Reviews run on the working copy, so a file staged only in part can't be reviewed for that commit. Stage the whole file.
-- Submodules are not files, so they are never reviewed and never block, even under a covered glob.
-- Git does not run the pre-commit or pre-merge-commit hook during rebase, cherry-pick or am, so those can record versions nobody reviewed. Run review-seal check in CI as the backstop.
-- A version that was reviewed but never committed exists only as a loose git object, which `git gc` deletes after about two weeks (`gc.pruneExpire`). After that, any edit to that file counts as substantive at commit time until it is reviewed again. A reviewed version that was committed, or that came from another clone in a commit, stays available.
-- When Claude finishes turns in two sessions close together, the second automatic review waits for the first, checking every 2 seconds for up to `timeoutSeconds` plus 60 seconds. If the first is still running by then, the second session is told on its next message which `review-seal review` command to run.
-- `.seal/.state/review.log`, the log of automatic reviews, keeps its last 128 KB once it passes 256 KB.
-- When a review fails with "could not read a verdict", the reviewer's raw output (its last 1 MB) is saved to `.seal/.state/last-reviewer-output.txt`. The plugin hooks fail silently; set `REVIEW_SEAL_DEBUG=1` in the environment Claude Code runs in to have them print their errors to stderr.
-- For `git commit <path>`, the hook stages the ledger into both indexes git uses during that commit. This is tested on git 2.50 and relies on long-stable git behaviour.
-- git 2.24 or later is needed (`--end-of-options`).
-- `review-by` dates, `independentFrom` and review dates are UTC days.
-
-CI runs the tests on Linux and macOS with Node 20, 22 and 24.
+Configuration, CI, branches, limits and the ledger format: [docs/reference.md](docs/reference.md).
 
 ## Security
 
