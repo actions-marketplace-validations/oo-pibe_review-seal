@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, readFileSync, readdirSync, existsSync, utimesSync, statSync, openSync, writeSync, closeSync, unlinkSync } from 'node:fs';
+import { writeFileSync, readFileSync, readdirSync, existsSync, utimesSync, statSync, openSync, writeSync, closeSync, unlinkSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { sealRepo, run } from './helpers.js';
-import { appendInbox, drainInbox, STATE_DIR, INBOX_FULL_BYTES } from '../lib/review.js';
+import { appendInbox, drainInbox, ensureStateDir, STATE_DIR, INBOX_FULL_BYTES } from '../lib/review.js';
 
 const MOD = new URL('../lib/review.js', import.meta.url).href;
 const node = (code, args) => new Promise((resolve, reject) => {
@@ -89,4 +89,34 @@ test('the "inbox full" note reaches Claude as one line', () => {
   const c = JSON.parse(r.out).hookSpecificOutput.additionalContext;
   assert.match(c, /^review-seal: inbox full; some review results were not passed on\. Ask the user to run review-seal list\.$/m);
   assert.doesNotMatch(c, /undefined/);
+});
+
+test('a full marker left from an old inbox does not silence the note for a new one', () => {
+  const { root } = sealRepo();
+  ensureStateDir(root);
+  const line = JSON.stringify({ file: 'pad', type: 'clean' }) + '\n';
+  const overflow = () => writeFileSync(inboxPath(root), line.repeat(Math.ceil(INBOX_FULL_BYTES / line.length) + 1), { flag: 'a' });
+  const notes = (p) => readFileSync(p, 'utf8').trim().split('\n').filter((l) => JSON.parse(l).type === 'full').length;
+  overflow();
+  appendInbox(root, [{ file: 'f1', findings: ['x'] }]);
+  assert.equal(notes(inboxPath(root)), 1);
+  // The old inbox goes away without a drain removing its marker (a drain that died after claiming it).
+  const gone = join(root, STATE_DIR, 'old-inbox');
+  renameSync(inboxPath(root), gone);
+  overflow();
+  appendInbox(root, [{ file: 'f2', findings: ['x'] }]);
+  appendInbox(root, [{ file: 'f3', findings: ['x'] }]);
+  assert.equal(notes(inboxPath(root)), 1);
+  unlinkSync(gone);
+  drainInbox(root);
+  assert.deepEqual(readdirSync(join(root, STATE_DIR)).filter((f) => f.startsWith('inbox')), []);
+});
+
+test('a claim whose time part is not a number counts as abandoned', () => {
+  const { root } = sealRepo();
+  ensureStateDir(root);
+  writeFileSync(join(root, STATE_DIR, 'inbox.jsonl.abc.1.x'), '{"file":"odd"}\n');
+  writeFileSync(join(root, STATE_DIR, 'inbox.jsonl.'), '{"file":"bare"}\n');
+  assert.deepEqual(drainInbox(root).map((i) => i.file).sort(), ['bare', 'odd']);
+  assert.deepEqual(readdirSync(join(root, STATE_DIR)).filter((f) => f.startsWith('inbox')), []);
 });
