@@ -6,7 +6,7 @@
     },
     "facts": {
       "rubric": ".seal/rubrics/facts.md",
-      "files": ["README.md", "SECURITY.md"],
+      "files": ["README.md", "SECURITY.md", "docs/reference.md"],
       "maxAgeDays": 30,
       "tools": ["WebFetch"],
       "fetchDomains": ["code.claude.com", "docs.github.com", "git-scm.com", "pre-commit.com"]
