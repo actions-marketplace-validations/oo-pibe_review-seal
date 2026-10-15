@@ -1,0 +1,24 @@
+{
+  "passes": {
+    "outreach": {
+      "rubric": ".seal/rubrics/outreach.md",
+      "files": ["sequences/**/*.yaml"],
+      "blockOnFindings": true
+    },
+    "battlecard": {
+      "rubric": ".seal/rubrics/battlecard.md",
+      "files": ["battlecards/**/*.md"],
+      "maxAgeDays": 30,
+      "tools": ["WebSearch"]
+    },
+    "blog-facts": {
+      "rubric": ".seal/rubrics/blog-facts.md",
+      "files": ["content/blog/**/*.md"],
+      "maxAgeDays": 90,
+      "tools": ["WebSearch"]
+    }
+  },
+  "autoReview": "stop",
+  "model": "sonnet",
+  "timeoutSeconds": 600
+}

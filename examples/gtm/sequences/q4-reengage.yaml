@@ -1,0 +1,26 @@
+name: Re-engage closed-lost, Q4
+audience: Closed-lost opportunities, last 6 months
+steps:
+  - step: 1
+    delay_days: 0
+    subject: "{{company}}, round two?"
+    body: |
+      Hi {first_name}},
+
+      When we spoke in the spring, {{company}} was still rolling out its new CRM. Since then we shipped
+      forecast snapshots, which customers say cut forecast prep time by 40%.
+
+      Worth a fresh look? Here is my calendar: {{calendar_link}}
+
+      {{sender_name}}
+
+      If this isn't relevant, reply "stop" and I won't email again.
+  - step: 2
+    delay_days: 4
+    subject: "Re: {{company}}, round two?"
+    body: |
+      Hi {{first_name}},
+
+      Teams our size typically see a 3x lift in pipeline coverage within a quarter of switching.
+
+      {{sender_name}}
