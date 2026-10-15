@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rmSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { rmSync, readFileSync, existsSync, writeFileSync, statSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { join, basename } from 'node:path';
 import { makeEntry } from '../lib/ledger.js';
 import { contentHash } from '../lib/hash.js';
 import { sealRepo, write, run } from './helpers.js';
-import { appendInbox } from '../lib/review.js';
+import { appendInbox, drainInbox } from '../lib/review.js';
 
 const hook = (root, payload) => run(root, ['hook', 'user-prompt'], { input: JSON.stringify({ session_id: 's1', cwd: root, ...payload }) });
 const ctx = (r) => (r.out ? JSON.parse(r.out).hookSpecificOutput.additionalContext : '');
@@ -94,20 +95,52 @@ test('clean results next to findings: the findings are delivered, the clean ones
   assert.doesNotMatch(c, /\(clean\)/);
 });
 
-test('the inbox keeps at most 500 items, dropping the oldest clean ones first', () => {
+test('a drain keeps at most 500 items, the newest, dropping the oldest clean ones first', () => {
   const { root } = sealRepo();
   const tag = { session: 's1', at: new Date().toISOString() };
-  const read = () => readFileSync(join(root, '.seal/.state/inbox.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   appendInbox(root, Array.from({ length: 300 }, (_, i) => ({ file: `c${i}.md`, pass: 'p', type: 'clean', ...tag })));
   appendInbox(root, Array.from({ length: 250 }, (_, i) => ({ file: `f${i}.md`, pass: 'p', findings: ['x'], ...tag })));
-  let items = read();
+  let items = drainInbox(root, 's1');
   assert.equal(items.length, 500);
   assert.equal(items.filter((i) => i.type === 'clean').length, 250);
   assert.equal(items.find((i) => i.type === 'clean').file, 'c50.md');
+  appendInbox(root, Array.from({ length: 300 }, (_, i) => ({ file: `c${i}.md`, pass: 'p', type: 'clean', ...tag })));
+  appendInbox(root, Array.from({ length: 250 }, (_, i) => ({ file: `f${i}.md`, pass: 'p', findings: ['x'], ...tag })));
   appendInbox(root, Array.from({ length: 300 }, (_, i) => ({ file: `g${i}.md`, pass: 'p', findings: ['x'], ...tag })));
-  items = read();
+  items = drainInbox(root, 's1');
   assert.equal(items.length, 500);
   assert.equal(items.filter((i) => i.type === 'clean').length, 0);
   assert.equal(items[0].file, 'f50.md');
   assert.equal(items.at(-1).file, 'g299.md');
+});
+
+test('appending never rewrites the live inbox, so a concurrent append cannot be overwritten', () => {
+  const { root } = sealRepo();
+  const p = join(root, '.seal/.state/inbox.jsonl');
+  appendInbox(root, Array.from({ length: 500 }, (_, i) => ({ file: `a${i}.md` })));
+  const ino = statSync(p).ino;
+  appendInbox(root, Array.from({ length: 10 }, (_, i) => ({ file: `b${i}.md` })));
+  assert.equal(statSync(p).ino, ino);
+  assert.equal(readFileSync(p, 'utf8').trim().split('\n').length, 510);
+});
+
+test('items appended by other processes while drains run are all delivered', async () => {
+  const { root } = sealRepo();
+  const mod = new URL('../lib/review.js', import.meta.url).href;
+  const child = (k) => new Promise((resolve, reject) => {
+    const code = `const { appendInbox } = await import(${JSON.stringify(mod)});
+      for (let b = 0; b < 25; b++) appendInbox(process.argv[1], Array.from({ length: 4 }, (_, i) => ({ file: 'p${k}-' + (b * 4 + i) })));`;
+    const c = spawn(process.execPath, ['--input-type=module', '-e', code, root], { stdio: 'inherit' });
+    c.on('exit', (status) => (status === 0 ? resolve() : reject(new Error(`child ${k} exited ${status}`))));
+  });
+  const seen = new Set();
+  let done = false;
+  const children = Promise.all([0, 1, 2, 3].map(child)).finally(() => { done = true; });
+  while (!done) {
+    for (const i of drainInbox(root, 's1')) seen.add(i.file);
+    await new Promise((r) => setImmediate(r));
+  }
+  await children;
+  for (const i of drainInbox(root, 's1')) seen.add(i.file);
+  assert.equal(seen.size, 400);
 });
