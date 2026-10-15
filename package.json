@@ -13,5 +13,7 @@
   "keywords": ["claude-code", "claude-code-plugin", "claude", "review", "code-review", "pre-commit", "git-hooks", "github-action", "ai-agents", "audit"],
   "author": "oo-pibe",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/oo-pibe/review-seal.git" }
+  "repository": { "type": "git", "url": "git+https://github.com/oo-pibe/review-seal.git" },
+  "homepage": "https://github.com/oo-pibe/review-seal#readme",
+  "bugs": { "url": "https://github.com/oo-pibe/review-seal/issues" }
 }
