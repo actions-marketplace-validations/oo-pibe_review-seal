@@ -58,6 +58,17 @@
       "via": "agent",
       "reviewedBlob": "02b57888fa5429e05c1c4c6f8c05ebcbfcb5b393",
       "token": "rv_357a0375ddf7"
+    },
+    "facts": {
+      "at": "2026-10-15",
+      "contentHash": "sha256:6fc963b08f195f2a",
+      "rubricHash": "sha256:f0d320fde49a1bf4",
+      "verdict": "clean",
+      "findings": [],
+      "reviewer": "independent",
+      "via": "agent",
+      "reviewedBlob": "02b57888fa5429e05c1c4c6f8c05ebcbfcb5b393",
+      "token": "rv_571972750b06"
     }
   },
   "example/README.md": {
