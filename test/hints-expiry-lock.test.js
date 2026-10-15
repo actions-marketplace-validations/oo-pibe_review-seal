@@ -45,7 +45,7 @@ test('while a review is running, a blocked commit says to commit again when it f
   holdLock(root);
   const r = run(root, ['check', '--staged']);
   assert.equal(r.code, 1);
-  assert.match(r.err, /Fix: a review is running now; commit again when it finishes/);
+  assert.match(r.err, /Fix: a review is running now; when it finishes, commit again \(or run review-seal review docs\/guide\.md\)/);
   assert.doesNotMatch(r.err, /let Claude finish/);
 });
 
