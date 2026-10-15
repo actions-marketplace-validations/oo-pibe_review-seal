@@ -9,9 +9,17 @@ permissions:
 jobs:
   freshness:
     runs-on: ubuntu-latest
+    # Without the secret the weekly run skips cleanly instead of failing.
+    env:
+      HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./
+      - name: Weekly re-check is off
+        if: env.HAS_KEY != 'true'
+        run: echo "::notice::The weekly re-check is off until the ANTHROPIC_API_KEY secret is added to this repository."
+      - if: env.HAS_KEY == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: env.HAS_KEY == 'true'
+        uses: ./
         with:
           mode: due
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
