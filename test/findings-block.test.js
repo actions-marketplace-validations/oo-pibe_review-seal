@@ -14,7 +14,8 @@ test('blockOnFindings: a fresh review with findings says to fix the file, not to
   const r = run(root, ['check', '--staged']);
   assert.equal(r.code, 1);
   assert.match(r.err, /review-seal: open findings block this commit:\n\n {2}BLOCK {2}docs\/guide\.md \[consistency\] open finding/);
-  assert.match(r.err, /Fix: edit the file to address the findings; it will be re-reviewed automatically \(or run review-seal review docs\/guide\.md\)/);
+  assert.match(r.err, /Fix: edit the file to address the findings; it will be re-reviewed automatically\n/);
+  assert.doesNotMatch(r.err, /or run/);
   assert.doesNotMatch(r.err, /need a fresh independent review/);
   assert.doesNotMatch(r.err, /let Claude finish/);
   // And the command it names does something once the file changes: on the reviewed text it has nothing to do.
