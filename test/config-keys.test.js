@@ -66,3 +66,12 @@ test('per-pass blockOnFindings blocks a commit through check', () => {
   assert.equal(r.code, 1);
   assert.match(r.err, /open findings block this commit/);
 });
+
+test('a pass setting at the top level, or a top-level setting in a pass, says where it belongs', () => {
+  for (const k of ['maxAgeDays', 'tools', 'fetchDomains', 'rubric', 'files']) {
+    rejects({ passes: { a: pass }, [k]: 1 }, new RegExp(`"${k}" belongs inside a pass`));
+  }
+  for (const k of ['autoReview', 'model', 'timeoutSeconds', 'ledger', 'maxFilesPerRun', 'substantive', 'independentFrom', 'passes']) {
+    rejects({ passes: { a: { ...pass, [k]: 1 } } }, new RegExp(`pass "a": "${k}" is a top-level setting`));
+  }
+});
