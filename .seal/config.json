@@ -2,7 +2,7 @@
   "passes": {
     "claims": {
       "rubric": ".seal/rubrics/claims.md",
-      "files": ["README.md", "SECURITY.md", "example/README.md"]
+      "files": ["README.md", "SECURITY.md", "example/README.md", "docs/reference.md"]
     },
     "facts": {
       "rubric": ".seal/rubrics/facts.md",
