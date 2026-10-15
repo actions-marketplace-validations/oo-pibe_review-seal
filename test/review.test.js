@@ -143,9 +143,9 @@ test('one job throwing does not lose the others; both outcomes reach the inbox',
   assert.equal(r.failed.length, 1);
   assert.equal(Object.keys(loadLedger(root, cfg)).length, 1);
   const inbox = drainInbox(root);
-  // Clean results reach the inbox too (as type "clean"), so both outcomes are there.
-  assert.equal(inbox.length, 2);
-  assert.deepEqual(inbox.map((i) => i.error ?? i.type).sort(), ['clean', 'kaput']);
+  // A run without a session (by hand, cron) leaves no clean results for a session to hear.
+  assert.equal(inbox.length, 1);
+  assert.equal(inbox[0].error, 'kaput');
 });
 
 test('a file deleted during review is a failure, not a throw', async () => {

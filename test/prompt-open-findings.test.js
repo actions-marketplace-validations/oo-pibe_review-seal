@@ -5,6 +5,7 @@ import { join, basename } from 'node:path';
 import { makeEntry } from '../lib/ledger.js';
 import { contentHash } from '../lib/hash.js';
 import { sealRepo, write, run } from './helpers.js';
+import { appendInbox } from '../lib/review.js';
 
 const hook = (root, payload) => run(root, ['hook', 'user-prompt'], { input: JSON.stringify({ session_id: 's1', cwd: root, ...payload }) });
 const ctx = (r) => (r.out ? JSON.parse(r.out).hookSpecificOutput.additionalContext : '');
@@ -70,7 +71,11 @@ test('ledger keys outside the repository are never read', () => {
 test('a clean review since the last prompt gets one line', () => {
   const { root } = sealRepo();
   write(root, 'docs/b.md', 'B.\n');
-  run(root, ['review', 'docs/guide.md', 'docs/b.md']);
+  // By hand there is no session to tell; the automatic run from Stop carries one.
+  run(root, ['review', 'docs/b.md']);
+  assert.equal(existsSync(join(root, '.seal/.state/inbox.jsonl')), false);
+  write(root, 'docs/b.md', 'B2.\n');
+  run(root, ['review', '--auto', '--session=s1', '--', 'docs/guide.md', 'docs/b.md']);
   const items = readFileSync(join(root, '.seal/.state/inbox.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(items.map((i) => i.file).sort(), ['docs/b.md', 'docs/guide.md']);
   assert.ok(items.every((i) => i.type === 'clean' && !('findings' in i)));
@@ -82,9 +87,27 @@ test('a clean review since the last prompt gets one line', () => {
 test('clean results next to findings: the findings are delivered, the clean ones add nothing', () => {
   const { root } = sealRepo();
   write(root, 'docs/b.md', 'B.\n');
-  run(root, ['review', 'docs/b.md']);
+  run(root, ['review', '--auto', '--session=s1', '--', 'docs/b.md']);
   run(root, ['review', 'docs/guide.md'], { env: { FAKE_CLAUDE_MODE: 'findings' } });
   const c = ctx(hook(root, {}));
   assert.match(c, /L1: says passport/);
   assert.doesNotMatch(c, /\(clean\)/);
+});
+
+test('the inbox keeps at most 500 items, dropping the oldest clean ones first', () => {
+  const { root } = sealRepo();
+  const tag = { session: 's1', at: new Date().toISOString() };
+  const read = () => readFileSync(join(root, '.seal/.state/inbox.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  appendInbox(root, Array.from({ length: 300 }, (_, i) => ({ file: `c${i}.md`, pass: 'p', type: 'clean', ...tag })));
+  appendInbox(root, Array.from({ length: 250 }, (_, i) => ({ file: `f${i}.md`, pass: 'p', findings: ['x'], ...tag })));
+  let items = read();
+  assert.equal(items.length, 500);
+  assert.equal(items.filter((i) => i.type === 'clean').length, 250);
+  assert.equal(items.find((i) => i.type === 'clean').file, 'c50.md');
+  appendInbox(root, Array.from({ length: 300 }, (_, i) => ({ file: `g${i}.md`, pass: 'p', findings: ['x'], ...tag })));
+  items = read();
+  assert.equal(items.length, 500);
+  assert.equal(items.filter((i) => i.type === 'clean').length, 0);
+  assert.equal(items[0].file, 'f50.md');
+  assert.equal(items.at(-1).file, 'g299.md');
 });
