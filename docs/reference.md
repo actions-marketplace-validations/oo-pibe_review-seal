@@ -61,7 +61,7 @@ Some mistakes are allowed but print a warning:
 
 - `list`, and `check` with no arguments, warn about a pass whose globs match no files, and about each glob that matches nothing.
 - `list`, and `check` outside the commit hook, warn about a Markdown file under `.seal/rubrics/` that no pass uses.
-- `list`, `check` and `review` warn when `fetchDomains` lists a placeholder host such as `www.example.com`.
+- `list`, `check`, `review` and `seal` warn when `fetchDomains` lists a placeholder host such as `www.example.com`.
 
 ## Letting small edits through
 

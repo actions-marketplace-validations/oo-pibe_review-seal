@@ -50,27 +50,25 @@
   "docs/reference.md": {
     "claims": {
       "at": "2026-10-15",
-      "contentHash": "sha256:cad8d51a3829519e",
+      "contentHash": "sha256:fd443f1c834159bc",
       "rubricHash": "sha256:d27749f0433feb4e",
-      "verdict": "findings",
-      "findings": [
-        "L64: says \"`list`, `check` and `review` warn when `fetchDomains` lists a placeholder host\", but `seal` triggers the same warning: `cmdSeal` (lib/cli.js:738) calls `configOrDie(root)` with the default `warn: true`, which runs `warnConfig`/`configWarnings` just like `list` (lib/cli.js:602), `check` (lib/cli.js:274) and `review` (lib/cli.js:788); `seal` is missing from the list."
-      ],
+      "verdict": "clean",
+      "findings": [],
       "reviewer": "independent",
       "via": "agent",
-      "reviewedBlob": "0b679b120d00d9b29817d8a2628646181d80bd2d",
-      "token": "rv_0197154606d9"
+      "reviewedBlob": "d2b91600383d09250a4c4e3c4f96c2cc934f6bd2",
+      "token": "rv_f3a03c57e18c"
     },
     "facts": {
       "at": "2026-10-15",
-      "contentHash": "sha256:cad8d51a3829519e",
+      "contentHash": "sha256:fd443f1c834159bc",
       "rubricHash": "sha256:f0d320fde49a1bf4",
       "verdict": "clean",
       "findings": [],
       "reviewer": "independent",
       "via": "agent",
-      "reviewedBlob": "0b679b120d00d9b29817d8a2628646181d80bd2d",
-      "token": "rv_92c2d455b85c"
+      "reviewedBlob": "d2b91600383d09250a4c4e3c4f96c2cc934f6bd2",
+      "token": "rv_7a358f9413b6"
     }
   },
   "example/README.md": {
