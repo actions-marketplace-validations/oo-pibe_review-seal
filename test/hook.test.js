@@ -136,9 +136,10 @@ test('review --auto records the version a failed review was for in the inbox', (
 test('hooks are silent and exit 0: no config, not a repo, broken config, inside a reviewer', () => {
   const plain = tmpRepo().root;
   assert.deepEqual([hook(plain, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(plain, 'a.md') } }).code, hook(plain, 'post-tool', {}).out], [0, '']);
+  // A broken config is reported once per session (hook-config-error.test.js); Stop stays silent.
   const broken = sealRepo().root;
   write(broken, '.seal/config.json', '{');
-  const b = hook(broken, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(broken, 'docs/guide.md') } });
+  const b = hook(broken, 'stop', {});
   assert.deepEqual([b.code, b.out], [0, '']);
   const child = sealRepo().root;
   const c = hook(child, 'post-tool', { tool_name: 'Edit', tool_input: { file_path: join(child, 'docs/guide.md') } }, { REVIEW_SEAL_CHILD: '1' });
