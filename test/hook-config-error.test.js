@@ -10,7 +10,7 @@ const ctx = (r) => (r.out ? JSON.parse(r.out).hookSpecificOutput.additionalConte
 test('a broken config is reported once per session at the prompt and after a tool; Stop stays silent', () => {
   const { root } = sealRepo();
   write(root, '.seal/config.json', JSON.stringify({ passes: { consistency: { rubric: '.seal/rubrics/consistency.md', files: ['docs/**/*.md'], maxAgedays: 3 } } }));
-  const want = /^review-seal: \.seal\/config\.json has an unknown key near "maxAgeDays"; run review-seal list to see the details\. Automatic reviews are off until it's fixed\.$/;
+  const want = /^review-seal: \.seal\/config\.json has an unknown key near "maxAgeDays"; ask the user to run review-seal list for the details\. Automatic reviews are off until it's fixed\.$/;
   const p = hook(root, 'user-prompt');
   assert.equal(p.code, 0);
   assert.equal(JSON.parse(p.out).hookSpecificOutput.hookEventName, 'UserPromptSubmit');
@@ -26,7 +26,7 @@ test('a broken config is reported once per session at the prompt and after a too
   assert.match(ctx(hook(root, 'user-prompt', { session_id: 's2' })), want);
 });
 
-const TAIL = "; run review-seal list to see the details. Automatic reviews are off until it's fixed.";
+const TAIL = "; ask the user to run review-seal list for the details. Automatic reviews are off until it's fixed.";
 const says = (root, what) => assert.equal(ctx(hook(root, 'user-prompt')), `review-seal: .seal/config.json has ${what}${TAIL}`);
 
 test('repository text never reaches Claude: a key that is not a near miss is not named', () => {

@@ -201,13 +201,17 @@ test('drain also collects old orphaned drain files, not fresh ones', () => {
   const { root } = sealRepo();
   appendInbox(root, [{ file: 'live' }]);
   const dir = join(root, STATE_DIR);
+  // Age comes from the claim time in the name, not mtime (a rename keeps an old inbox's mtime). Old-style names
+  // without a time count as long abandoned.
+  const fresh = `inbox.jsonl.${Date.now()}.124.fresh`;
   writeFileSync(join(dir, 'inbox.jsonl.123.old'), '{"file":"orphan"}\n');
-  writeFileSync(join(dir, 'inbox.jsonl.124.fresh'), '{"file":"busy"}\n');
+  writeFileSync(join(dir, `inbox.jsonl.${Date.now() - 120_000}.125.aged`), '{"file":"aged"}\n');
+  writeFileSync(join(dir, fresh), '{"file":"busy"}\n');
   const old = new Date(Date.now() - 120_000);
-  utimesSync(join(dir, 'inbox.jsonl.123.old'), old, old);
-  assert.deepEqual(drainInbox(root).map((i) => i.file).sort(), ['live', 'orphan']);
+  utimesSync(join(dir, fresh), old, old);
+  assert.deepEqual(drainInbox(root).map((i) => i.file).sort(), ['aged', 'live', 'orphan']);
   assert.equal(existsSync(join(dir, 'inbox.jsonl.123.old')), false);
-  assert.equal(existsSync(join(dir, 'inbox.jsonl.124.fresh')), true);
+  assert.equal(existsSync(join(dir, fresh)), true);
 });
 
 const failuresPath = (root) => join(root, STATE_DIR, 'failures.json');
