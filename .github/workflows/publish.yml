@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write # provenance now, npm trusted publishing later
+      id-token: write # npm trusted publishing and provenance
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,12 +61,7 @@ jobs:
             process.exit(missing.length || extra.length ? 1 : 0);
           '
           rm pack.json
-      # npm cannot configure a trusted publisher for a package that does not
-      # exist yet (npm/cli#8544), so the FIRST release needs a bootstrap
-      # NPM_TOKEN secret. Provenance needs only a supported CI, id-token: write
-      # and a matching public repository field, so that release is still
-      # signed. Once it is on the registry, add the trusted publisher on
-      # npmjs.com and delete the secret; npm then prefers OIDC.
+      # Publishes through npm trusted publishing (OIDC, no stored token);
+      # npmjs.com trusts oo-pibe/review-seal publish.yml. id-token: write
+      # above also lets npm sign the provenance statement.
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
