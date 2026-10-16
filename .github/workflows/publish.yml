@@ -41,17 +41,17 @@ jobs:
       - run: npm test
       # The repository's own docs must carry a fresh review before release.
       - run: node bin/review-seal.js check
-      # The tarball must hold everything the CLI, plugin, hook and Action need,
+      # The tarball must hold everything the CLI, git hook and Action need,
       # and none of the tests, examples or this repo's own review history.
       - name: The tarball contains what it should, and nothing else
         run: |
           npm pack --dry-run --json > pack.json
           node -e '
             const files = require("./pack.json")[0].files.map((f) => f.path);
-            const must = ["bin/", "lib/", "hooks/", "commands/", ".claude-plugin/",
+            const must = ["bin/", "lib/",
               "action.yml", ".pre-commit-hooks.yaml", "README.md", "LICENSE",
               "SECURITY.md", "docs/reference.md"];
-            const mustNot = ["test/", "example/", "examples/", ".seal/"];
+            const mustNot = ["test/", "example/", "examples/", ".seal/", "plugin/"];
             const has = (p) => p.endsWith("/") ? files.some((f) => f.startsWith(p)) : files.includes(p);
             const missing = must.filter((p) => !has(p));
             const extra = mustNot.filter((p) => has(p));
