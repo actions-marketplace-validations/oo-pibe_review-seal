@@ -38,6 +38,14 @@ jobs:
           declared="$(node -p 'require("./package.json").version')"
           test "$tagged" = "$declared" \
             || { echo "tag $GITHUB_REF_NAME does not match package.json $declared"; exit 1; }
+      # Anthropic's plugin directory reads oo-pibe/review-seal-plugin, a copy of
+      # plugin/ (tools/push-plugin.sh). A release must not ship a plugin/ that
+      # the directory copy doesn't match.
+      - name: The plugin repository matches plugin/
+        run: |
+          git fetch --quiet --depth 1 https://github.com/oo-pibe/review-seal-plugin.git main
+          test "$(git rev-parse FETCH_HEAD^{tree})" = "$(git rev-parse HEAD:plugin)" \
+            || { echo "::error::oo-pibe/review-seal-plugin is out of date; run tools/push-plugin.sh"; exit 1; }
       - run: npm test
       # The repository's own docs must carry a fresh review before release.
       - run: node bin/review-seal.js check
