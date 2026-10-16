@@ -1,5 +1,5 @@
 name: review-seal
-description: Review changed files with an independent Claude reviewer, record the seals, and fail if any covered file still lacks a fresh review.
+description: A separate Claude Code session reviews changed files against your checklist. Commits wait until the review is current.
 author: oo-pibe
 branding:
   icon: check-square
